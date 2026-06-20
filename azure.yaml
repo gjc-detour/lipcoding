@@ -9,10 +9,12 @@ services:
     docker:
       path: Dockerfile
       remoteBuild: true
-  worker:
-    project: .
-    language: ts
-    host: containerapp
-    docker:
-      path: worker/Dockerfile
-      remoteBuild: true
+  # worker: disabled until azd provision creates the worker Container App
+  # Uncomment after running: azd provision -e dev
+  # worker:
+  #   project: .
+  #   language: ts
+  #   host: containerapp
+  #   docker:
+  #     path: worker/Dockerfile
+  #     remoteBuild: true
