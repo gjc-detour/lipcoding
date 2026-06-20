@@ -33,9 +33,15 @@ logger.info("Storage backend configured", { backend: storageBackend });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// CORS: allow the configured origin only, or same-origin in production.
+// Never reflect arbitrary origins with credentials — prevents CWE-942.
+const allowedOrigin = process.env.ALLOWED_ORIGIN ?? (
+  process.env.NODE_ENV === "production" ? false : "http://localhost:5173"
+);
+
 app.use(
   cors({
-    origin: true,
+    origin: allowedOrigin,
     credentials: true,
   })
 );
