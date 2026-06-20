@@ -51,64 +51,73 @@ users drop anything (text, voice, PDF) → the Copilot agent processes it → su
 
 ## ⏳ Remaining Phases
 
-### Phase 7 — Persistent Memory & Context-Aware Agent — TODO 🔴 HIGH
-> Agent makes decisions based on existing history — avoids duplicate saves, updates existing items
+## Remaining Phases & Feature Roadmap
 
-- **Context injection**: Before each agent call, load recent 10 inbox items + upcoming scheduled events and inject as context into the system prompt
-- **New tool `update_item`**: Modify an existing item's summary, tags, or due_date (agent calls this instead of saving a duplicate)
-- **New tool `close_event`**: Mark a scheduled event as cancelled/done (user says "cancel my Friday meeting")
-- **New tool `complete_item`**: Mark a task item as completed
-- **Duplicate detection**: Agent checks context before calling `save_item` — if similar item exists, calls `update_item` instead
-- **REST endpoints**: `PATCH /api/inbox/:id`, `DELETE /api/events/:id`
+### Priority 1 — 🔥🔥🔥 Highest ROI (implement first)
 
-### Phase 8 — Enhanced Search — TODO 🟡
-> Search should surface relevant history to inform agent and UI
+| # | Feature | Criterion | Effort | Why |
+|---|---|---|---|---|
+| 1 | **SSE streaming for web chat** — token-by-token typing effect | SDK 25% | Medium | Most visible proof of SDK depth |
+| 2 | **Tool-call transparency** — show `🔧 Calling save_item...` inline | SDK 25% | Medium | Judges see the agent reasoning |
+| 3 | **Wire Azure Blob Storage** for PDF/audio uploads (code exists, just not called) | Azure 18% | Low | 20-line free win |
+| 4 | **AI attribution footer** — `⚡ GPT-4o via Azure AI Foundry · 1.2s` on each response | UX 12% + Azure 18% | Low | Visible Azure proof in UI |
+| 5 | **`complete_item` tool + task checkbox** — close the productivity loop | Productivity 18% | Low | Capture-only = notes app; completion = task manager |
 
-- Full-text search across `raw` + `summary` + `tags` fields (already partial)
-- Search by type filter (`?type=task`)
-- Search by date range (`?from=&to=`)
-- **Agent-side search**: `search_items` tool already exists — make agent proactively search before saving to avoid duplicates
-- Frontend search bar on `/search` route (already scaffolded in `InboxPage`)
+### Priority 2 — 🔥🔥 High ROI
 
-### Phase 9 — Azure Cloud Storage — TODO 🟢
-> Replaces SQLite with proper Azure services — big boost to Azure score
+| # | Feature | Criterion | Effort | Notes |
+|---|---|---|---|---|
+| 6 | **Interactive schedule page** — Done/Cancel buttons on events | Functionality 16% | Low | Currently read-only |
+| 7 | **Rate limiting** on `/api/chat` + `/api/transcribe` | Responsible AI 6% | Low | 5-line `express-rate-limit` |
+| 8 | **Auto priority tagging** — agent tags `priority:high/medium/low` | Productivity 18% | Low | System prompt change + color badges |
+| 9 | **Markdown rendering** — `react-markdown` in chat bubbles | Functionality 16% | Low | Replace manual bold-split hack |
+| 10 | **Confirmation card for scheduling** — human-in-the-loop before saving | Responsible AI 6% + UX 12% | Medium | Copilot ext already has this |
+| 11 | **GitHub Issue creation tool** — `create_github_issue` in Copilot ext path | Innovation 5% + SDK 25% | Medium | Uses GitHub token from `_session` |
+| 12 | **Meeting notes extraction mode** — detect meeting content, extract tasks+attendees | Innovation 5% | Medium | Demo killer feature |
 
-- **Azure Cosmos DB** — `inbox_items` + `scheduled_events`, partition by `userId`
-- **Azure Blob Storage** — raw uploaded files (PDFs, audio recordings)
-- `STORAGE_BACKEND=cosmos|sqlite` env switch in `server/services/storage.ts`
-- Bicep: Cosmos DB account + containers + Blob storage account
-- Researching: `@azure/cosmos`, `@azure/storage-blob`
+### Priority 3 — 🔥 Medium ROI
 
-### Phase 8 — Scheduled Notifications (Serverless) — TODO 🟡
-> Cron job runs as a SEPARATE Azure Function, not inside the web server
-
-- **Azure Functions** (timer trigger, every 1 min) — separate from Express web server
-- Reads `scheduled_events` from shared Cosmos DB
-- Sends notifications via:
-  - **In-app**: Azure Web PubSub → browser SSE/WebSocket
-  - **Email**: Azure Communication Services (ACS)
-- Marks events as `notified = true` after sending
-- Deployed via same `azd` pipeline from `functions/` folder
-- Researching: `@azure/functions`, `@azure/web-pubsub`, `@azure/communication-email`
-
-### Phase 9 — E2E Tests (full suite) — TODO 🟡
-- Playwright: PDF upload → extraction → agent → inbox item appears
-- Playwright: voice recording simulation → transcript → save
-- Supertest: full chat → tool call → item saved flow
+| # | Feature | Criterion | Effort | Notes |
+|---|---|---|---|---|
+| 13 | **Drag-and-drop file capture** — drag PDF onto CaptureBar | UX 12% | Low | Zero new packages |
+| 14 | **Source citation in responses** — `[ref:abc123]` links to inbox items | Responsible AI 6% | Medium | Hallucination grounding |
+| 15 | **Prompt injection input check** — heuristic scan + ⚠️ badge | Responsible AI 6% | Low | Already patched context injection |
+| 16 | **App Insights telemetry** — 3-line init, Azure-native observability | Azure 18% | Low | `applicationinsights` package |
+| 17 | **Daily digest** — AI-generated morning briefing | Productivity 18% | Medium | `/api/digest` + modal |
+| 18 | **Keyboard shortcuts** — `Ctrl+K` focus, `Ctrl+Shift+V` voice | UX 12% | Low | Signal intentional design |
+| 19 | **Weekly insights page** — AI analysis of 7-day productivity | Innovation 5% | Medium | `/insights` page |
+| 20 | **Deep health check** — ping OpenAI + Cosmos, return latency | Functionality 16% | Low | Visible in demo |
 
 ---
 
-## Judging Criteria Mapping
+## 🎬 Demo Scenarios for Judges
 
-| Criterion | Weight | Status | How We Win |
-|---|---|---|---|
-| Copilot SDK | 25% | ✅ | Both SDKs: `preview-sdk` (extension) + `@github/copilot-sdk` BYOK (agent) |
-| Productivity Impact | 18% | ✅ | Text+voice+PDF inbox → AI saves, schedules, searches |
-| Azure AI & Cloud | 18% | 🔄 | GPT-4o + Whisper via Foundry; adding Cosmos DB + Functions |
-| Functionality | 16% | ✅ | Full E2E deployed; 16 Playwright tests passing |
-| UX | 12% | ✅ | Bilingual, streaming, voice, file upload |
-| Responsible AI | 6% | ✅ | Confirmation before scheduling, source attribution |
-| Innovation | 5% | ✅ | Multi-modal + Korean/English + serverless notifications |
+### Demo 1 — "Meeting-to-Action Pipeline" (2 min)
+1. Drag `demo/회의록_2026-06-20.pdf` onto capture bar (drag-drop)
+2. Meeting Notes mode kicks in → Document Intelligence processes it
+3. Streaming response with tool chips: `🔧 save_item` → `🔧 schedule_event` → `🔧 save_item`
+4. Switch to Schedule page — Friday event with countdown
+5. Ask "What action items came out of today's meeting?" → agent cites items with `[ref:...]`
+> *"From a PDF drop to a fully scheduled action plan — in 30 seconds, in Korean."*
+
+### Demo 2 — "Voice to Bilingual Schedule" (90 sec)
+1. Press Voice → speak Korean: *"다음 주 금요일에 팀 미팅이 있어요. 발표 자료를 목요일까지 준비해야 하는데, 긴급해요."*
+2. Whisper transcribes → `⚡ Whisper via Azure AI Foundry · 0.8s` footer
+3. Agent creates 🔴 High priority task + schedules Friday meeting — two tool calls visible
+4. Type "Translate my last task to English" → `translate_text` fires → second item appears
+> *"One voice input in Korean — two tasks, one event, one translation. Zero typing."*
+
+### Demo 3 — "GitHub Copilot Extension Flow" (2 min)
+1. In VS Code Copilot Chat: `@lipcoding I just merged the auth PR. Save a note and schedule a security review next Monday.`
+2. SSE streams token-by-token in Copilot Chat. Two tool calls fire.
+3. Switch to LipCoding web app — note and event already there (shared Cosmos DB)
+4. Ask `@lipcoding What do I have next week?` → agent returns Monday event with link
+5. Click ✅ Done on the event in web app
+> *"Your AI coding assistant and your productivity system share the same memory."*
+
+---
+
+
 
 ---
 
