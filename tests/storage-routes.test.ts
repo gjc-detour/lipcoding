@@ -45,6 +45,15 @@ describe.sequential("Storage routes", () => {
     expect(getResponse.status).toBe(200);
     expect(getResponse.body.id).toBe(itemId);
 
+    const completeResponse = await request(app).patch(`/api/inbox/${itemId}/complete`);
+    expect(completeResponse.status).toBe(200);
+    expect(completeResponse.body).toEqual({ success: true });
+
+    const completedValue = db
+      .prepare("SELECT completed FROM inbox_items WHERE id = ?")
+      .get(itemId) as { completed: number } | undefined;
+    expect(completedValue?.completed).toBe(1);
+
     const deleteResponse = await request(app).delete(`/api/inbox/${itemId}`);
     expect(deleteResponse.status).toBe(204);
   });

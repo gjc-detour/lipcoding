@@ -55,7 +55,12 @@ When a user gives you text, voice transcript, or file content:
 
 Be proactive: if you see a task (할 일), create it. If you see a date, schedule it.
 If the user references something they've already saved, use search_items first.
-Always confirm what you saved, updated, or closed.`;
+Always confirm what you saved, updated, or closed.
+
+Always include exactly one priority tag in the tags array:
+- "priority:high" — deadline within 48 hours, or urgent language (urgent, ASAP, 긴급, 지금, 즉시)
+- "priority:medium" — deadline within 1 week, or important language
+- "priority:low" — no urgency signals`;
 
 // Sanitize user-supplied strings before injecting into system prompt.
 // Prevents stored prompt injection: a malicious summary/title cannot escape the data block.
@@ -1029,8 +1034,33 @@ export type AzureFallbackInput = {
   userId?: string;
 };
 
+export type AzureFallbackCallbacks = {
+  onToken?: (token: string) => void;
+  onToolCall?: (tool: string, status: "start" | "done", preview?: string) => void;
+};
+
+function getToolPreview(toolName: string, rawArgs: Record<string, unknown>): string | undefined {
+  switch (toolName) {
+    case "save_item":
+      return optionalString(rawArgs.summary) ?? optionalString(rawArgs.raw);
+    case "schedule_event":
+      return optionalString(rawArgs.title);
+    case "search_items":
+      return optionalString(rawArgs.query);
+    case "translate_text":
+      return optionalString(rawArgs.text);
+    case "update_item":
+      return optionalString(rawArgs.summary) ?? optionalString(rawArgs.id);
+    case "close_event":
+      return optionalString(rawArgs.id);
+    default:
+      return undefined;
+  }
+}
+
 export async function processWithAzureFallback(
-  input: AzureFallbackInput
+  input: AzureFallbackInput,
+  callbacks?: AzureFallbackCallbacks
 ): Promise<AgentOutput> {
   const client = createAzureClient();
   const model = getAzureModel();
@@ -1086,12 +1116,15 @@ export async function processWithAzureFallback(
 
     for (const call of toolCalls) {
       const args = parseToolArguments(call.function.arguments);
+      const preview = getToolPreview(call.function.name, args);
       logger.info("Tool call", { correlationId, toolName: call.function.name, args });
+      callbacks?.onToolCall?.(call.function.name, "start", preview);
 
       let toolResult: DispatchToolResult;
       try {
         toolResult = await dispatchTool(call.function.name, args, { token: "", userId });
         logger.info("Tool result", { correlationId, toolName: call.function.name, success: true });
+        callbacks?.onToolCall?.(call.function.name, "done", preview);
       } catch (err) {
         logger.error("Tool error", { correlationId, toolName: call.function.name, error: String(err) });
         toolResult = { result: { error: String(err) } };
@@ -1104,25 +1137,42 @@ export async function processWithAzureFallback(
 
   const t1 = Date.now();
   logger.info("AI call started", { correlationId, model });
-  const final = await client.chat.completions.create({
-    stream: false, model, messages: conversation, max_tokens: 1024, temperature: 0.7,
+  const stream = await client.chat.completions.create({
+    stream: true,
+    model,
+    messages: conversation,
+    max_tokens: 1024,
+    temperature: 0.7,
   });
-  logger.info("AI call", { correlationId, model, durationMs: Date.now() - t1 });
 
-  const finalContent = final.choices[0]?.message?.content?.trim();
+  let finalContent = "";
+  for await (const chunk of stream) {
+    const token = chunk.choices[0]?.delta?.content ?? "";
+    if (!token) {
+      continue;
+    }
+    finalContent += token;
+    callbacks?.onToken?.(token);
+  }
+  logger.info("AI call", { correlationId, model, durationMs: Date.now() - t1 });
+  const trimmedFinalContent = finalContent.trim();
 
   // Some models (e.g. Kimi) return empty content after tool calls.
   // If we saved items, synthesize a confirmation from what was actually stored.
-  if (!finalContent && references.length > 0) {
-    const saved = references.filter(r => r.type === "inbox_item");
-    const events = references.filter(r => r.type === "scheduled_event");
+  if (!trimmedFinalContent && references.length > 0) {
+    const saved = references.filter((reference) => reference.type === "inbox_item");
+    const events = references.filter((reference) => reference.type === "scheduled_event");
     const parts: string[] = [];
     if (saved.length > 0) {
-      const summaries = saved.map(r => `"${(r.data as { summary?: string })?.summary ?? r.id}"`).join(", ");
+      const summaries = saved
+        .map((reference) => `"${(reference.data as { summary?: string })?.summary ?? reference.id}"`)
+        .join(", ");
       parts.push(`✅ ${saved.length === 1 ? "저장했습니다" : `${saved.length}개 저장했습니다`}: ${summaries}`);
     }
     if (events.length > 0) {
-      const titles = events.map(r => `"${(r.data as { title?: string })?.title ?? r.id}"`).join(", ");
+      const titles = events
+        .map((reference) => `"${(reference.data as { title?: string })?.title ?? reference.id}"`)
+        .join(", ");
       parts.push(`📅 일정 등록: ${titles}`);
     }
     return {
@@ -1132,7 +1182,7 @@ export async function processWithAzureFallback(
   }
 
   return {
-    response: normalizeText(finalContent),
+    response: normalizeText(trimmedFinalContent),
     references: uniqueReferences(references),
   };
 }

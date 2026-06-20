@@ -1,6 +1,8 @@
+import { randomUUID } from "crypto";
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import OpenAI, { toFile } from "openai";
+import { uploadBlob } from "../lib/blobStorage.js";
 import { logger } from "../lib/logger.js";
 import { getContext } from "../lib/requestContext.js";
 
@@ -70,7 +72,24 @@ transcribeRouter.post(
         chars: typeof transcription === "string" ? transcription.length : 0,
       });
 
-      res.json({ transcript: transcription });
+      let fileUrl: string | undefined;
+      if (process.env.AZURE_STORAGE_CONNECTION_STRING && req.userId) {
+        try {
+          const itemId = randomUUID();
+          fileUrl = await uploadBlob(
+            req.userId,
+            itemId,
+            filename,
+            req.file.buffer,
+            req.file.mimetype
+          );
+          logger.info("File uploaded to Blob", { correlationId, filename, fileUrl });
+        } catch (err) {
+          logger.warn("Blob upload failed (non-fatal)", { correlationId, error: String(err) });
+        }
+      }
+
+      res.json({ transcript: transcription, fileUrl });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : "Unknown error";
       logger.error("Transcription failed", { correlationId, error: errMsg });
@@ -78,4 +97,3 @@ transcribeRouter.post(
     }
   }
 );
-

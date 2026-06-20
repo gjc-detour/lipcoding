@@ -77,11 +77,22 @@ function PageShell({
 }
 
 function CaptureInboxView() {
-  const { items, loading, error, refetch, deleteItem } = useInbox();
-  const { messages, sendMessage, isLoading, clearHistory } = useChat();
+  const { items, loading, error, refetch, deleteItem, markItemComplete } = useInbox();
+  const {
+    messages,
+    sendMessageStream,
+    isLoading,
+    toolEvents,
+    clearHistory,
+    lastModel,
+    lastLatencyMs,
+  } = useChat();
+  const lastAssistantMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.id;
 
   const handleCaptureSubmit = async (text: string) => {
-    await sendMessage(text);
+    await sendMessageStream(text);
     await refetch();
   };
 
@@ -119,11 +130,22 @@ function CaptureInboxView() {
               </div>
             ) : null}
 
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
+            {messages.map((message, index) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                attribution={
+                  message.id === lastAssistantMessageId &&
+                  lastModel &&
+                  typeof lastLatencyMs === "number"
+                    ? `${lastModel} · ${lastLatencyMs}ms`
+                    : undefined
+                }
+                toolEvents={
+                  message.role === "assistant" && index === messages.length - 1 ? toolEvents : undefined
+                }
+              />
             ))}
-
-            {isLoading ? <ChatMessage isTyping /> : null}
           </div>
         </section>
       }
@@ -147,7 +169,14 @@ function CaptureInboxView() {
           ) : null}
 
           {!loading
-            ? items.map((item) => <InboxItem key={item.id} item={item} onDelete={deleteItem} />)
+            ? items.map((item) => (
+                <InboxItem
+                  key={item.id}
+                  item={item}
+                  onDelete={deleteItem}
+                  onComplete={markItemComplete}
+                />
+              ))
             : null}
         </>
       }

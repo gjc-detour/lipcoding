@@ -1,9 +1,11 @@
+import { randomUUID } from "crypto";
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import {
   DocumentAnalysisClient,
   AzureKeyCredential,
 } from "@azure/ai-form-recognizer";
+import { uploadBlob } from "../lib/blobStorage.js";
 import { logger } from "../lib/logger.js";
 import { getContext } from "../lib/requestContext.js";
 
@@ -139,7 +141,18 @@ extractRouter.post(
         pageCount,
       });
 
-      res.json({ text, filename: originalname, pageCount, chars: text.length, method });
+      let fileUrl: string | undefined;
+      if (process.env.AZURE_STORAGE_CONNECTION_STRING && req.userId) {
+        try {
+          const itemId = randomUUID();
+          fileUrl = await uploadBlob(req.userId, itemId, originalname, buffer, mimetype);
+          logger.info("File uploaded to Blob", { correlationId, filename: originalname, fileUrl });
+        } catch (err) {
+          logger.warn("Blob upload failed (non-fatal)", { correlationId, error: String(err) });
+        }
+      }
+
+      res.json({ text, filename: originalname, pageCount, chars: text.length, method, fileUrl });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : "Unknown error";
       logger.error("File extraction failed", { correlationId, filename: originalname, error: errMsg });
@@ -147,5 +160,4 @@ extractRouter.post(
     }
   }
 );
-
 

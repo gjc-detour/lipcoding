@@ -25,6 +25,7 @@ interface CosmosInboxItemDocument {
   tagsText: string;
   due_date: string | null;
   scheduled: boolean;
+  completed: boolean;
   created_at: string;
 }
 
@@ -106,6 +107,7 @@ function mapInboxDocument(doc: CosmosInboxItemDocument): InboxItem {
     tags: Array.isArray(doc.tags) ? doc.tags.filter((tag) => typeof tag === "string") : [],
     due_date: doc.due_date ?? undefined,
     scheduled: Boolean(doc.scheduled),
+    completed: Boolean(doc.completed),
     created_at: doc.created_at,
   };
 }
@@ -137,6 +139,7 @@ function toInboxDocument(item: Omit<InboxItem, "id" | "created_at">): CosmosInbo
     tagsText: item.tags.join(" "),
     due_date: item.due_date ?? null,
     scheduled: item.scheduled,
+    completed: Boolean(item.completed),
     created_at: new Date().toISOString(),
   };
 }
@@ -401,6 +404,10 @@ export async function cosmosUpdateInboxItem(
     operations.push({ op: "set", path: "/scheduled", value: patch.scheduled });
   }
 
+  if (typeof patch.completed === "boolean") {
+    operations.push({ op: "set", path: "/completed", value: patch.completed });
+  }
+
   if (operations.length === 0) {
     return cosmosGetInboxItem(id, effectiveUserId);
   }
@@ -459,6 +466,14 @@ export async function cosmosDeleteInboxItem(
 
   await inbox.item(id, effectiveUserId).delete();
   return true;
+}
+
+export async function cosmosCompleteInboxItem(
+  id: string,
+  userId: string
+): Promise<boolean> {
+  const updated = await cosmosUpdateInboxItem(id, userId, { completed: true });
+  return updated !== null;
 }
 
 export async function cosmosCreateScheduledEvent(

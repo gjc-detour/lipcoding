@@ -41,4 +41,12 @@ db.exec(`
   );
 `);
 
+try {
+  db.exec(
+    "ALTER TABLE inbox_items ADD COLUMN completed INTEGER NOT NULL DEFAULT 0"
+  );
+} catch {
+  // Column already exists on previously migrated databases.
+}
+
 export { db };

@@ -7,6 +7,7 @@ export interface InboxItem {
   tags: string[];
   due_date?: string;
   scheduled: boolean;
+  completed?: boolean;
   created_at: string;
 }
 
@@ -45,6 +46,20 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+}
+
+export interface ChatResponse {
+  response: string;
+  items?: InboxItem[];
+  model?: string;
+  latencyMs?: number;
+}
+
+export interface ToolEvent {
+  type: "tool_call";
+  tool: string;
+  status: "start" | "done";
+  preview?: string;
 }
 
 export interface AuthUser {

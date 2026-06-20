@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchEvents } from "../lib/api";
+import { deleteEvent, fetchEvents } from "../lib/api";
 import { formatDateTime, formatRelativeTime, isPastDate } from "../lib/time";
 import type { ScheduledEvent } from "../lib/types";
 
@@ -26,6 +26,41 @@ export default function SchedulePage() {
       setLoading(false);
     }
   }, []);
+
+  const handleDelete = useCallback(
+    async (id: string, actionLabel: "done" | "cancel") => {
+      const targetEvent = events.find((event) => event.id === id);
+      if (!targetEvent) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        actionLabel === "done"
+          ? "Mark this scheduled event as done?"
+          : "Cancel this scheduled event?"
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setError(null);
+      setEvents((currentEvents) => currentEvents.filter((event) => event.id !== id));
+
+      try {
+        await deleteEvent(id);
+      } catch (caughtError) {
+        setEvents((currentEvents) =>
+          [...currentEvents, targetEvent].sort(
+            (left, right) => new Date(left.due_at).getTime() - new Date(right.due_at).getTime()
+          )
+        );
+        const message =
+          caughtError instanceof Error ? caughtError.message : "Failed to update scheduled event.";
+        setError(message);
+      }
+    },
+    [events]
+  );
 
   useEffect(() => {
     void loadEvents();
@@ -97,6 +132,26 @@ export default function SchedulePage() {
                         {formatDateTime(event.due_at)}
                       </p>
                       <p className="text-gray-500">{formatRelativeTime(event.due_at)}</p>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleDelete(event.id, "done");
+                          }}
+                          className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-600 transition hover:bg-emerald-50"
+                        >
+                          Done
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleDelete(event.id, "cancel");
+                          }}
+                          className="rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>

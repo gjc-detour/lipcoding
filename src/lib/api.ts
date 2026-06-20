@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  ChatResponse,
   ChatMessage,
   InboxFilters,
   InboxItem,
@@ -80,6 +81,15 @@ export async function deleteInboxItem(id: string): Promise<void> {
   await parseResponse<void>(response);
 }
 
+export async function completeInboxItem(id: string): Promise<void> {
+  const response = await fetch(`/api/inbox/${id}/complete`, {
+    method: "PATCH",
+    credentials: "same-origin",
+  });
+
+  await parseResponse<void>(response);
+}
+
 export async function fetchEvents(): Promise<ScheduledEvent[]> {
   const response = await fetch("/api/events", {
     credentials: "same-origin",
@@ -87,10 +97,19 @@ export async function fetchEvents(): Promise<ScheduledEvent[]> {
   return parseResponse<ScheduledEvent[]>(response);
 }
 
+export async function deleteEvent(id: string): Promise<void> {
+  const response = await fetch(`/api/events/${id}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+  });
+
+  await parseResponse<void>(response);
+}
+
 export async function sendChat(
   message: string,
   history: ChatMessage[]
-): Promise<{ response: string }> {
+): Promise<ChatResponse> {
   const response = await fetch("/api/chat", {
     method: "POST",
     credentials: "same-origin",
@@ -103,7 +122,7 @@ export async function sendChat(
     }),
   });
 
-  return parseResponse<{ response: string }>(response);
+  return parseResponse<ChatResponse>(response);
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser> {

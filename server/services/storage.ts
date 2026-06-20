@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { db } from "../db.js";
 import {
   cosmosCloseScheduledEvent,
+  cosmosCompleteInboxItem,
   cosmosCreateInboxItem,
   cosmosCreateScheduledEvent,
   cosmosDeleteInboxItem,
@@ -29,6 +30,7 @@ export interface InboxItem {
   tags: string[];
   due_date?: string;
   scheduled: boolean;
+  completed?: boolean;
   created_at: string;
 }
 
@@ -59,6 +61,7 @@ interface InboxItemRow {
   tags: string;
   due_date: string | null;
   scheduled: number;
+  completed: number;
   created_at: string;
 }
 
@@ -82,6 +85,7 @@ interface InboxItemRecord {
   tags: string;
   due_date: string | null;
   scheduled: number;
+  completed: number;
   created_at: string;
 }
 
@@ -117,6 +121,7 @@ function mapInboxItem(row: InboxItemRow): InboxItem {
     tags: parseTags(row.tags),
     due_date: row.due_date ?? undefined,
     scheduled: row.scheduled === 1,
+    completed: row.completed === 1,
     created_at: row.created_at,
   };
 }
@@ -169,15 +174,16 @@ function sqliteCreateInboxItem(
       tags: JSON.stringify(item.tags),
       due_date: item.due_date ?? null,
       scheduled: item.scheduled ? 1 : 0,
+      completed: item.completed ? 1 : 0,
       created_at: createdAt,
     };
 
     db.prepare(
       `
         INSERT INTO inbox_items (
-          id, user_id, type, raw, summary, tags, due_date, scheduled, created_at
+          id, user_id, type, raw, summary, tags, due_date, scheduled, completed, created_at
         ) VALUES (
-          @id, @user_id, @type, @raw, @summary, @tags, @due_date, @scheduled, @created_at
+          @id, @user_id, @type, @raw, @summary, @tags, @due_date, @scheduled, @completed, @created_at
         )
       `
     ).run(createdItem);
@@ -340,6 +346,11 @@ function sqliteUpdateInboxItem(
     values.push(patch.scheduled ? 1 : 0);
   }
 
+  if (typeof patch.completed === "boolean") {
+    assignments.push("completed = ?");
+    values.push(patch.completed ? 1 : 0);
+  }
+
   if (assignments.length === 0) {
     return sqliteGetInboxItemById(id, effectiveUserId);
   }
@@ -374,6 +385,14 @@ function sqliteDeleteInboxItem(id: string, userId = DEFAULT_USER_ID): boolean {
     return result.changes > 0;
   });
   return doDelete(id, effectiveUserId);
+}
+
+function sqliteCompleteInboxItem(id: string, userId = DEFAULT_USER_ID): boolean {
+  const effectiveUserId = resolveUserId(userId);
+  const result = db
+    .prepare("UPDATE inbox_items SET completed = 1 WHERE id = ? AND user_id = ?")
+    .run(id, effectiveUserId);
+  return result.changes > 0;
 }
 
 function sqliteCreateScheduledEvent(
@@ -508,6 +527,17 @@ export async function deleteInboxItem(
   }
 
   return Promise.resolve(sqliteDeleteInboxItem(id, userId));
+}
+
+export async function completeInboxItem(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<boolean> {
+  if (useCosmosDB) {
+    return cosmosCompleteInboxItem(id, userId);
+  }
+
+  return Promise.resolve(sqliteCompleteInboxItem(id, userId));
 }
 
 export async function createScheduledEvent(

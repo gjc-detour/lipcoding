@@ -22,6 +22,12 @@ const chatRequestSchema = z.object({
   messages: z.array(chatMessageSchema).optional(),
 });
 
+const chatStreamQuerySchema = z.object({
+  message: z.string().min(1),
+  userId: z.string().optional(),
+  messages: z.string().optional(),
+});
+
 function buildConversation(
   message: string,
   messages?: AgentInput["messages"]
@@ -31,11 +37,26 @@ function buildConversation(
   return history;
 }
 
+function parseConversationQuery(messages?: string): AgentInput["messages"] | undefined {
+  if (!messages?.trim()) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(messages) as unknown;
+  const result = z.array(chatMessageSchema).safeParse(parsed);
+  if (!result.success) {
+    throw new Error("messages query parameter must be valid chat history JSON.");
+  }
+
+  return result.data;
+}
+
 // Detect if Copilot SDK is usable — falls back to Azure direct if CLI is missing
 const COPILOT_SDK_ENABLED = process.env.COPILOT_SDK_ENABLED !== "false";
 
 chatRouter.post("/", async (req: Request, res: Response) => {
   try {
+    const t0 = Date.now();
     const parsed = chatRequestSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -87,10 +108,90 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     res.json({
       response: result.response,
       items: items.length > 0 ? items : undefined,
+      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
+      latencyMs: Date.now() - t0,
     });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown error";
     logger.error("Chat endpoint error", { error: errMsg });
+    res.status(500).json({ error: "AI processing failed", details: errMsg });
+  }
+});
+
+chatRouter.get("/stream", async (req: Request, res: Response) => {
+  try {
+    const t0 = Date.now();
+    const parsed = chatStreamQuerySchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "message query parameter is required",
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const { message, messages, userId } = parsed.data;
+    const history = parseConversationQuery(messages);
+    const effectiveUserId = req.userId || userId?.trim() || "default";
+    const conversation = buildConversation(message, history);
+    const previousItems = await getInboxItems(effectiveUserId);
+    const previousItemIds = new Set(previousItems.map((item) => item.id));
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    let streamClosed = false;
+    req.on("close", () => {
+      streamClosed = true;
+    });
+
+    const write = (data: object) => {
+      if (streamClosed) {
+        return;
+      }
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const result = await processWithAzureFallback(
+      { message, messages: conversation, userId: effectiveUserId },
+      {
+        onToken: (token) => write({ type: "token", content: token }),
+        onToolCall: (tool, status, preview) =>
+          write({
+            type: status === "start" ? "tool_call" : "tool_result",
+            tool,
+            status,
+            preview,
+          }),
+      }
+    );
+
+    const items = (await getInboxItems(effectiveUserId)).filter(
+      (item) => !previousItemIds.has(item.id)
+    );
+
+    write({
+      type: "done",
+      response: result.response,
+      items: items.length > 0 ? items : undefined,
+      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
+      latencyMs: Date.now() - t0,
+    });
+    res.end();
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    logger.error("Chat stream endpoint error", { error: errMsg });
+
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: "error", message: errMsg })}\n\n`);
+      res.end();
+      return;
+    }
+
     res.status(500).json({ error: "AI processing failed", details: errMsg });
   }
 });

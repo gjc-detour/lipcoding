@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { deleteInboxItem, fetchInboxItems } from "../lib/api";
+import { completeInboxItem, deleteInboxItem, fetchInboxItems } from "../lib/api";
 import type { InboxItem } from "../lib/types";
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -39,6 +39,33 @@ export function useInbox(search = "") {
     []
   );
 
+  const markItemComplete = useCallback(
+    async (id: string) => {
+      const previousItems = items;
+      setItems((currentItems) =>
+        currentItems.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                completed: true,
+              }
+            : item
+        )
+      );
+
+      try {
+        await completeInboxItem(id);
+      } catch (caughtError) {
+        setItems(previousItems);
+        const message =
+          caughtError instanceof Error ? caughtError.message : "Failed to complete inbox item.";
+        setError(message);
+        throw caughtError;
+      }
+    },
+    [items]
+  );
+
   useEffect(() => {
     void refetch();
   }, [refetch]);
@@ -59,5 +86,6 @@ export function useInbox(search = "") {
     error,
     refetch,
     deleteItem,
+    markItemComplete,
   };
 }

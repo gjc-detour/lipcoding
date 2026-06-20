@@ -79,16 +79,18 @@ test.describe("Capture flow", () => {
       }
     });
 
-    // Intercept chat POST — return canned AI response + item
-    await page.route("**/api/chat", async (route) => {
+    // Intercept chat stream — return canned AI response + item
+    await page.route("**/api/chat/stream**", async (route) => {
       items = [SAMPLE_ITEM]; // simulate agent saving the item
       await route.fulfill({
         status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          response: `✅ Saved as a task: "${SAMPLE_ITEM.summary}". I also noticed the Friday deadline and created a reminder.`,
-          items: [SAMPLE_ITEM],
-        }),
+        contentType: "text/event-stream",
+        body:
+          `data: ${JSON.stringify({ type: "tool_call", tool: "save_item", status: "start", preview: SAMPLE_ITEM.summary })}\n\n` +
+          `data: ${JSON.stringify({ type: "token", content: `✅ Saved as a task: "${SAMPLE_ITEM.summary}". ` })}\n\n` +
+          `data: ${JSON.stringify({ type: "token", content: "I also noticed the Friday deadline and created a reminder." })}\n\n` +
+          `data: ${JSON.stringify({ type: "tool_result", tool: "save_item", status: "done", preview: SAMPLE_ITEM.summary })}\n\n` +
+          `data: ${JSON.stringify({ type: "done", response: `✅ Saved as a task: "${SAMPLE_ITEM.summary}". I also noticed the Friday deadline and created a reminder.`, items: [SAMPLE_ITEM] })}\n\n`,
       });
     });
   });
@@ -201,8 +203,14 @@ test.describe("Delete item", () => {
       }
     });
 
-    await page.route("**/api/chat", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ response: "ok" }) })
+    await page.route("**/api/chat/stream**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body:
+          `data: ${JSON.stringify({ type: "token", content: "ok" })}\n\n` +
+          `data: ${JSON.stringify({ type: "done", response: "ok" })}\n\n`,
+      })
     );
 
     // Auto-accept the window.confirm dialog

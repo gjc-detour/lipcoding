@@ -111,13 +111,18 @@ test.describe("PDF and file upload flow", () => {
         })
       );
     });
-    await page.route("**/api/chat", async (route) => {
+    await page.route("**/api/chat/stream**", async (route) => {
       items = [SAVED_ITEM];
       await route.fulfill(
-        jsonResponse({
-          response: "Saved extracted PDF to your inbox.",
-          items,
-        })
+        {
+          status: 200,
+          contentType: "text/event-stream",
+          body:
+            `data: ${JSON.stringify({ type: "tool_call", tool: "save_item", status: "start", preview: SAVED_ITEM.summary })}\n\n` +
+            `data: ${JSON.stringify({ type: "token", content: "Saved extracted PDF to your inbox." })}\n\n` +
+            `data: ${JSON.stringify({ type: "tool_result", tool: "save_item", status: "done", preview: SAVED_ITEM.summary })}\n\n` +
+            `data: ${JSON.stringify({ type: "done", response: "Saved extracted PDF to your inbox.", items })}\n\n`,
+        }
       );
     });
 

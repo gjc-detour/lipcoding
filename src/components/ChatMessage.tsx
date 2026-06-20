@@ -1,30 +1,12 @@
-import { Fragment } from "react";
-import type { ChatMessage as ChatMessageModel } from "../lib/types";
+import ReactMarkdown from "react-markdown";
+import type { ChatMessage as ChatMessageModel, ToolEvent } from "../lib/types";
+import ToolCallBubble from "./ToolCallBubble";
 
 interface ChatMessageProps {
   message?: ChatMessageModel;
   isTyping?: boolean;
-}
-
-function renderBoldSegments(text: string) {
-  return text.split("**").map((segment, index) =>
-    index % 2 === 1 ? (
-      <strong key={`${segment}-${index}`} className="font-semibold">
-        {segment}
-      </strong>
-    ) : (
-      <Fragment key={`${segment}-${index}`}>{segment}</Fragment>
-    )
-  );
-}
-
-function renderFormattedContent(content: string) {
-  return content.split("\n").map((line, index) => (
-    <Fragment key={`${line}-${index}`}>
-      {index > 0 ? <br /> : null}
-      {renderBoldSegments(line)}
-    </Fragment>
-  ));
+  attribution?: string;
+  toolEvents?: ToolEvent[];
 }
 
 function TypingIndicator() {
@@ -41,11 +23,17 @@ function TypingIndicator() {
   );
 }
 
-export default function ChatMessage({ message, isTyping = false }: ChatMessageProps) {
+export default function ChatMessage({
+  message,
+  isTyping = false,
+  attribution,
+  toolEvents = [],
+}: ChatMessageProps) {
   const isUser = message?.role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+      {!isUser && toolEvents.length > 0 ? <ToolCallBubble events={toolEvents} /> : null}
       <div
         className={`max-w-2xl rounded-2xl px-4 py-3 text-sm shadow-sm ${
           isUser
@@ -53,7 +41,22 @@ export default function ChatMessage({ message, isTyping = false }: ChatMessagePr
             : "border border-gray-200 bg-white text-gray-800"
         }`}
       >
-        {isTyping ? <TypingIndicator /> : renderFormattedContent(message?.content ?? "")}
+        {isTyping ? (
+          <TypingIndicator />
+        ) : (
+          <>
+            <div
+              className={`prose prose-sm max-w-none ${
+                isUser ? "prose-invert" : "dark:prose-invert"
+              }`}
+            >
+              <ReactMarkdown>{message?.content ?? ""}</ReactMarkdown>
+            </div>
+            {!isUser && attribution ? (
+              <p className="mt-1 text-[10px] text-gray-400">⚡ {attribution}</p>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

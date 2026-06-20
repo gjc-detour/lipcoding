@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  completeInboxItem,
   createInboxItem,
   deleteInboxItem,
   getInboxItem,
@@ -117,6 +118,27 @@ inboxRouter.get("/:id", async (req, res) => {
     res.json(item);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to load inbox item";
+    res.status(500).json({ error: message });
+  }
+});
+
+inboxRouter.patch("/:id/complete", async (req, res) => {
+  const parsed = inboxParamsSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid id" });
+    return;
+  }
+
+  try {
+    const success = await completeInboxItem(parsed.data.id, req.userId);
+    if (!success) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to complete inbox item";
     res.status(500).json({ error: message });
   }
 });
