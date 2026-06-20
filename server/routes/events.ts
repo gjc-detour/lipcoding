@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  closeScheduledEvent,
   createScheduledEvent,
   getScheduledEvents,
 } from "../services/storage.js";
@@ -16,6 +17,10 @@ const createScheduledEventSchema = z.object({
     message: "due_at must be a valid ISO8601 datetime",
   }),
   item_id: z.string().min(1).optional(),
+});
+
+const eventParamsSchema = z.object({
+  id: z.string().min(1),
 });
 
 eventsRouter.get("/", async (req, res) => {
@@ -58,6 +63,30 @@ eventsRouter.post("/", async (req, res) => {
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Failed to create scheduled event";
+    res.status(500).json({ error: message });
+  }
+});
+
+eventsRouter.delete("/:id", async (req, res) => {
+  const parsed = eventParamsSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid id" });
+    return;
+  }
+
+  try {
+    const deleted = await closeScheduledEvent(parsed.data.id, req.userId);
+
+    if (!deleted) {
+      res.status(404).json({ error: "Scheduled event not found" });
+      return;
+    }
+
+    res.status(204).send();
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Failed to delete scheduled event";
     res.status(500).json({ error: message });
   }
 });

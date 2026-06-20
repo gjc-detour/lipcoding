@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { mockAuthenticatedUser } from "./helpers";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ const SAMPLE_EVENT = {
   notified: false,
   created_at: new Date().toISOString(),
 };
+
+test.beforeEach(async ({ page }) => {
+  await mockAuthenticatedUser(page);
+});
 
 // ─── UI smoke tests ────────────────────────────────────────────────────────────
 
@@ -67,7 +72,7 @@ test.describe("Capture flow", () => {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify(items),
+          body: JSON.stringify({ items, total: items.length }),
         });
       } else {
         await route.continue();
@@ -186,7 +191,7 @@ test.describe("Delete item", () => {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify(items),
+          body: JSON.stringify({ items, total: items.length }),
         });
       } else if (method === "DELETE") {
         items = [];
@@ -241,4 +246,3 @@ test.describe("Schedule page", () => {
     await expect(page.getByText(/no scheduled events/i)).toBeVisible({ timeout: 3000 });
   });
 });
-

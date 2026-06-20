@@ -230,10 +230,17 @@ export default function CaptureBar({
           <span className={voiceError ? "text-red-500" : ""}>
             {voiceError ?? "Tip: Ctrl+Enter to send · 한국어/English 모두 지원 · Voice transcribed by Whisper AI"}
           </span>
-          <span>{isTranscribing ? "Transcribing…" : isRecording ? "🔴 Recording" : "Ready"}</span>
+          <span>
+            {isExtractingFile
+              ? "Extracting…"
+              : isTranscribing
+              ? "Transcribing…"
+              : isRecording
+              ? "🔴 Recording"
+              : "Ready"}
+          </span>
         </div>
       </div>
     </section>
   );
 }
-
