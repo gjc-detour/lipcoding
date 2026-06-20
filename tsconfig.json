@@ -21,6 +21,6 @@
     },
     "baseUrl": "."
   },
-  "include": ["src", "server", "tests"],
+  "include": ["src", "server", "tests", "worker"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

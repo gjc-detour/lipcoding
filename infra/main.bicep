@@ -22,6 +22,25 @@ param azureOpenAiDeployment string = 'gpt-4o'
 @description('Whisper deployment name for speech-to-text')
 param whisperDeploymentName string = 'whisper'
 
+@description('Comma-separated userId:displayName:token entries')
+param allowedUsers string = ''
+
+@description('ACS connection string for reminder emails')
+@secure()
+param azureCommunicationConnectionString string = ''
+
+@description('Sender email address for reminder emails')
+param notificationFromEmail string = ''
+
+@description('Recipient email address for reminder emails')
+param notificationToEmail string = ''
+
+@description('Notification worker polling interval in milliseconds')
+param notificationIntervalMs string = '60000'
+
+@description('Application log level')
+param logLevel string = 'info'
+
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -93,6 +112,8 @@ module web './modules/container-app.bicep' = {
       { name: 'COSMOS_ENDPOINT', value: storage.outputs.cosmosEndpoint }
       { name: 'COSMOS_CONNECTION_STRING', secretRef: 'cosmos-connection-string' }
       { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'azure-storage-connection-string' }
+      { name: 'ALLOWED_USERS', value: allowedUsers }
+      { name: 'LOG_LEVEL', value: logLevel }
       { name: 'PORT', value: '3001' }
     ]
     secrets: [
@@ -104,12 +125,49 @@ module web './modules/container-app.bicep' = {
   }
 }
 
+module worker './modules/worker.bicep' = {
+  name: 'worker'
+  scope: rg
+  params: {
+    name: '${abbrs.appContainerApps}worker-${resourceToken}'
+    location: location
+    tags: union(tags, { 'azd-service-name': 'worker' })
+    containerAppsEnvironmentName: containerAppsEnv.outputs.name
+    containerRegistryName: containerRegistry.outputs.name
+    env: [
+      { name: 'STORAGE_BACKEND', value: 'cosmos' }
+      { name: 'COSMOS_ENDPOINT', value: storage.outputs.cosmosEndpoint }
+      { name: 'COSMOS_CONNECTION_STRING', secretRef: 'cosmos-connection-string' }
+      { name: 'ALLOWED_USERS', value: allowedUsers }
+      { name: 'AZURE_COMMUNICATION_CONNECTION_STRING', secretRef: 'azure-communication-connection-string' }
+      { name: 'NOTIFICATION_FROM_EMAIL', value: notificationFromEmail }
+      { name: 'NOTIFICATION_TO_EMAIL', value: notificationToEmail }
+      { name: 'NOTIFICATION_INTERVAL_MS', value: notificationIntervalMs }
+      { name: 'LOG_LEVEL', value: logLevel }
+      { name: 'NODE_ENV', value: 'production' }
+    ]
+    secrets: [
+      { name: 'cosmos-connection-string', value: storage.outputs.cosmosConnectionString }
+      { name: 'azure-communication-connection-string', value: azureCommunicationConnectionString }
+    ]
+  }
+}
+
 module cosmosRoleAssignment './modules/cosmos-role-assignment.bicep' = {
   name: 'cosmos-role-assignment'
   scope: rg
   params: {
     cosmosAccountName: storage.outputs.cosmosAccountName
     principalId: web.outputs.principalId
+  }
+}
+
+module workerCosmosRoleAssignment './modules/cosmos-role-assignment.bicep' = {
+  name: 'worker-cosmos-role-assignment'
+  scope: rg
+  params: {
+    cosmosAccountName: storage.outputs.cosmosAccountName
+    principalId: worker.outputs.principalId
   }
 }
 

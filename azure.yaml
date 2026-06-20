@@ -9,3 +9,10 @@ services:
     docker:
       path: Dockerfile
       remoteBuild: true
+  worker:
+    project: .
+    language: ts
+    host: containerapp
+    docker:
+      path: worker/Dockerfile
+      remoteBuild: true

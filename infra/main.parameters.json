@@ -16,6 +16,24 @@
     },
     "azureOpenAiDeployment": {
       "value": "${AZURE_OPENAI_DEPLOYMENT}"
+    },
+    "allowedUsers": {
+      "value": "${ALLOWED_USERS}"
+    },
+    "azureCommunicationConnectionString": {
+      "value": "${AZURE_COMMUNICATION_CONNECTION_STRING}"
+    },
+    "notificationFromEmail": {
+      "value": "${NOTIFICATION_FROM_EMAIL}"
+    },
+    "notificationToEmail": {
+      "value": "${NOTIFICATION_TO_EMAIL}"
+    },
+    "notificationIntervalMs": {
+      "value": "${NOTIFICATION_INTERVAL_MS}"
+    },
+    "logLevel": {
+      "value": "${LOG_LEVEL}"
     }
   }
 }

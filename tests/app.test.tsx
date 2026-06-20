@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../src/App";
 
 class MockEventSource {
@@ -101,8 +101,10 @@ describe("App", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument();
 
+    await waitFor(() => {
+      expect(MockEventSource.instances[0]?.url).toBe("/api/notifications");
+    });
     const eventSource = MockEventSource.instances[0];
-    expect(eventSource?.url).toBe("/api/notifications");
 
     await act(async () => {
       eventSource.dispatch("notification", {

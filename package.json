@@ -10,8 +10,10 @@
     "dev": "concurrently \"vite\" \"tsx watch server/index.ts\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "dev:worker": "tsx watch worker/notifier.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "start:worker": "tsx worker/notifier.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint ."

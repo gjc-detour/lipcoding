@@ -51,7 +51,31 @@ async function extractWithPdfParse(buffer: Buffer): Promise<{ text: string; page
   };
 }
 
-// ── Route ─────────────────────────────────────────────────────────────────────
+// ── Garbled text detection ─────────────────────────────────────────────────────
+// pdf-parse/pdfjs cannot decode many Korean/CJK fonts without proper ToUnicode tables.
+// Heuristic: if >30% of non-space chars are outside printable ASCII + Hangul Unicode range,
+// the extraction is likely garbled and we should escalate to Document Intelligence.
+function isGarbled(text: string): boolean {
+  if (text.length < 10) return false;
+  const chars = text.replace(/\s/g, "");
+  if (chars.length === 0) return false;
+  let badCount = 0;
+  for (const ch of chars) {
+    const cp = ch.codePointAt(0) ?? 0;
+    const isPrintableAscii = cp >= 0x20 && cp <= 0x7e;
+    const isHangul = cp >= 0xac00 && cp <= 0xd7a3;       // Hangul syllables
+    const isHangulJamo = cp >= 0x1100 && cp <= 0x11ff;   // Jamo
+    const isHangulCompat = cp >= 0x3130 && cp <= 0x318f; // Compat Jamo
+    const isCJK = cp >= 0x4e00 && cp <= 0x9fff;          // CJK unified ideographs
+    const isLatin = cp >= 0x00a0 && cp <= 0x024f;        // Extended Latin
+    const isPunct = cp >= 0x2000 && cp <= 0x206f;        // General punctuation
+    if (!isPrintableAscii && !isHangul && !isHangulJamo && !isHangulCompat && !isCJK && !isLatin && !isPunct) {
+      badCount++;
+    }
+  }
+  return badCount / chars.length > 0.3;
+}
+
 extractRouter.post(
   "/",
   upload.single("file"),
@@ -87,6 +111,16 @@ extractRouter.post(
           method = "pdf-parse";
           logger.info("Azure Document Intelligence not configured, using pdf-parse fallback", { correlationId });
           ({ text, pageCount } = await extractWithPdfParse(buffer));
+
+          // If pdf-parse returns garbled text (e.g. Korean fonts without ToUnicode),
+          // try Document Intelligence if it gets configured later — for now warn the user
+          if (isGarbled(text)) {
+            logger.warn("PDF text appears garbled (likely Korean/CJK font encoding issue)", {
+              correlationId, filename: originalname, preview: text.slice(0, 80),
+            });
+            text = `[⚠️ PDF font encoding issue — Korean/CJK text could not be decoded by the local parser. To fix this, configure Azure Document Intelligence (AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT + KEY) which supports Korean OCR natively.]\n\n${text}`;
+            method = "pdf-parse-garbled";
+          }
         }
       } else {
         text = buffer.toString("utf-8").trim();

@@ -31,13 +31,13 @@
 │  └── /api/health        → Health + DB status check                  │
 │                                                                      │
 │  Background: node-cron (every 1 min)                                │
-│  └── Check due events → email (ACS) + SSE push → mark notified     │
-└───┬──────────┬──────────┬──────────┬──────────┬─────────────────────┘
-    │          │          │          │          │
-    ▼          ▼          ▼          ▼          ▼
-  Azure      Azure      Azure      Azure      Azure
-  OpenAI    Cosmos DB   Blob      Doc Intel  Comm Svc
- (GPT+STT)  (NoSQL)   Storage   (Form Rec)  (Email)
+│  └── Check due events → SSE push → browser toast                    │
+└───┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┘
+    │          │          │          │          │          │
+    ▼          ▼          ▼          ▼          ▼          ▼
+  Azure      Azure      Azure      Azure      Azure     Worker
+  OpenAI    Cosmos DB   Blob      Doc Intel  Comm Svc  Container App
+ (GPT+STT)  (NoSQL)   Storage   (Form Rec)  (Email)   (Outbound notifications)
 ```
 
 ---
@@ -160,6 +160,7 @@
 | `AZURE_COMMUNICATION_CONNECTION_STRING` | ACS connection string | Email skipped |
 | `NOTIFICATION_FROM_EMAIL` | Sender email address | — |
 | `NOTIFICATION_TO_EMAIL` | Recipient email address | — |
+| `NOTIFICATION_INTERVAL_MS` | Worker sweep interval in milliseconds | `60000` |
 
 ### Observability
 | Variable | Description | Default |
@@ -176,15 +177,17 @@ Express Server
 ├── needs: AZURE_OPENAI_ENDPOINT + API_KEY + DEPLOYMENT
 ├── needs: AZURE_OPENAI_WHISPER_DEPLOYMENT (for /api/transcribe)
 ├── optional: AZURE_DOCUMENT_INTELLIGENCE_* (for /api/extract)
-├── optional: AZURE_COMMUNICATION_* (for email notifications)
+├── optional: ALLOWED_USERS (for multi-user auth)
 ├── if STORAGE_BACKEND=cosmos: needs COSMOS_CONNECTION_STRING or COSMOS_ENDPOINT
+├── runs: node-cron for SSE reminder pushes
 └── if STORAGE_BACKEND=sqlite: uses data/lipcoding.db (auto-created)
 
-node-cron (runs inside Express)
+Notification Worker
 ├── reads: scheduled_events (via storage service)
-├── writes: notified=true (via storage service)
-├── pushes: SSE to connected browsers
-└── sends: email via ACS (if configured)
+├── dispatches: outbound notification channels (email now, SMS/webhook later)
+├── writes: notified=true after outbound dispatch
+├── optional: AZURE_COMMUNICATION_* for email via ACS
+└── interval: NOTIFICATION_INTERVAL_MS (default 60000ms)
 ```
 
 ---
@@ -263,11 +266,12 @@ The app supports two storage backends via `STORAGE_BACKEND` env var:
 ```
 1. User creates a message with a deadline
 2. Agent calls schedule_event tool → saved to scheduled_events (Cosmos or SQLite)
-3. node-cron fires every minute
+3. Express node-cron fires every minute
 4. Queries: due_at <= now AND notified = false
-5a. If browser connected: SSE push → /api/notifications → toast in UI
-5b. If ACS configured: email sent to NOTIFICATION_TO_EMAIL
-6. Event marked notified = true
+5. If browser connected: SSE push → /api/notifications → toast in UI
+6. Worker polls on the same interval and dispatches outbound channels
+7. If ACS configured: email sent to NOTIFICATION_TO_EMAIL
+8. Worker marks event notified = true
 ```
 
 ---

@@ -9,11 +9,6 @@ import {
   processDueNotifications,
   registerSSEClient,
 } from "../server/services/notificationService.js";
-import { sendEventReminderEmail } from "../server/lib/emailNotifier.js";
-
-vi.mock("../server/lib/emailNotifier.js", () => ({
-  sendEventReminderEmail: vi.fn().mockResolvedValue(undefined),
-}));
 
 describe.sequential("notificationService", () => {
   beforeEach(() => {
@@ -24,7 +19,7 @@ describe.sequential("notificationService", () => {
     vi.clearAllMocks();
   });
 
-  it("pushes due reminders to SSE clients and marks them notified", async () => {
+  it("pushes due reminders to SSE clients without marking them notified", async () => {
     const writes: string[] = [];
     const response = {
       write: vi.fn((chunk: string) => {
@@ -54,16 +49,12 @@ describe.sequential("notificationService", () => {
     const processedCount = await processDueNotifications("default");
 
     expect(processedCount).toBe(1);
-    expect(sendEventReminderEmail).toHaveBeenCalledTimes(1);
-    expect(sendEventReminderEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Standup", due_at: dueEvent.due_at })
-    );
     expect(writes).toEqual(
       expect.arrayContaining([expect.stringContaining(`"eventId":"${dueEvent.id}"`)])
     );
 
     const scheduledEvents = await getScheduledEvents("default");
-    expect(scheduledEvents.find((event) => event.id === dueEvent.id)?.notified).toBe(true);
+    expect(scheduledEvents.find((event) => event.id === dueEvent.id)?.notified).toBe(false);
     expect(
       scheduledEvents.find((event) => event.title === "Future reminder")?.notified
     ).toBe(false);

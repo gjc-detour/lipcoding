@@ -2,10 +2,8 @@ import type { Response } from "express";
 import cron from "node-cron";
 import { DEFAULT_USER, getAllowedUsers } from "../lib/auth.js";
 import { logger } from "../lib/logger.js";
-import { sendEventReminderEmail } from "../lib/emailNotifier.js";
 import {
   getScheduledEvents,
-  markEventNotified,
   type ScheduledEvent,
 } from "./storage.js";
 
@@ -18,7 +16,6 @@ export interface NotificationPayload {
 }
 
 const sseClients = new Map<string, Set<Response>>();
-
 let notificationTask: ReturnType<typeof cron.schedule> | null = null;
 
 function toNotificationPayload(event: ScheduledEvent): NotificationPayload {
@@ -38,6 +35,10 @@ function getDueEvents(events: ScheduledEvent[], now = Date.now()): ScheduledEven
       return !event.notified && !Number.isNaN(dueAt) && dueAt <= now;
     })
     .sort((left, right) => new Date(left.due_at).getTime() - new Date(right.due_at).getTime());
+}
+
+export function sendSSENotification(res: Response, event: NotificationPayload): void {
+  res.write(`event: notification\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
 export function registerSSEClient(userId: string, res: Response): () => void {
@@ -80,11 +81,9 @@ export function pushNotification(userId: string, event: NotificationPayload): vo
     return;
   }
 
-  const payload = `event: notification\ndata: ${JSON.stringify(event)}\n\n`;
-
   for (const client of [...clients]) {
     try {
-      client.write(payload);
+      sendSSENotification(client, event);
     } catch (error: unknown) {
       clients.delete(client);
       logger.warn("Failed to push SSE notification", {
@@ -125,34 +124,11 @@ export async function processDueNotifications(userId = DEFAULT_USER.id): Promise
     dueEventCount: dueEvents.length,
   });
 
-  let processedCount = 0;
-
   for (const event of dueEvents) {
-    try {
-      const payload = toNotificationPayload(event);
-
-      pushNotification(userId, payload);
-      await sendEventReminderEmail(event);
-      await markEventNotified(event.id);
-
-      processedCount += 1;
-
-      logger.info("Processed event reminder", {
-        userId,
-        eventId: event.id,
-        title: event.title,
-      });
-    } catch (error: unknown) {
-      logger.error("Failed to process event reminder", {
-        userId,
-        eventId: event.id,
-        title: event.title,
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+    pushNotification(userId, toNotificationPayload(event));
   }
 
-  return processedCount;
+  return dueEvents.length;
 }
 
 async function runNotificationSweep(): Promise<void> {
