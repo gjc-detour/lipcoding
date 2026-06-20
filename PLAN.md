@@ -55,38 +55,41 @@ users drop anything (text, voice, PDF) → the Copilot agent processes it → su
 
 ### Priority 1 — 🔥🔥🔥 Highest ROI (implement first)
 
-| # | Feature | Criterion | Effort | Why |
+| # | Feature | Criterion | Effort | Status |
 |---|---|---|---|---|
-| 1 | **SSE streaming for web chat** — token-by-token typing effect | SDK 25% | Medium | Most visible proof of SDK depth |
-| 2 | **Tool-call transparency** — show `🔧 Calling save_item...` inline | SDK 25% | Medium | Judges see the agent reasoning |
-| 3 | **Wire Azure Blob Storage** for PDF/audio uploads (code exists, just not called) | Azure 18% | Low | 20-line free win |
-| 4 | **AI attribution footer** — `⚡ GPT-4o via Azure AI Foundry · 1.2s` on each response | UX 12% + Azure 18% | Low | Visible Azure proof in UI |
-| 5 | **`complete_item` tool + task checkbox** — close the productivity loop | Productivity 18% | Low | Capture-only = notes app; completion = task manager |
+| 1 | **SSE streaming for web chat** | SDK 25% | Medium | ✅ Done |
+| 2 | **Tool-call transparency chips** | SDK 25% | Medium | ✅ Done |
+| 3 | **Azure Blob Storage wiring** | Azure 18% | Low | ✅ Done |
+| 4 | **AI attribution footer** | UX 12% + Azure 18% | Low | ✅ Done |
+| 5 | **Task completion checkbox** | Productivity 18% | Low | ✅ Done |
 
 ### Priority 2 — 🔥🔥 High ROI
 
+| # | Feature | Criterion | Effort | Status |
+|---|---|---|---|---|
+| 6 | **Interactive schedule page** | Functionality 16% | Low | ✅ Done |
+| 7 | **Rate limiting** | Responsible AI 6% | Low | ✅ Done |
+| 8 | **Auto priority tagging** | Productivity 18% | Low | ✅ Done |
+| 9 | **Markdown rendering** | Functionality 16% | Low | ✅ Done |
+| 10 | **GPT-4o Vision — screenshot paste** (new!) | Azure 18% + Innovation 5% | Low-Med | ⏳ TODO |
+| 11 | **Copilot Extension slash commands** `/meeting`, `/todo`, `/analyze` | SDK 25% + UX 12% | Low | ⏳ TODO |
+| 12 | **Azure OpenAI Moderation pre-flight** | Responsible AI 6% + Azure 18% | Low | ⏳ TODO |
+| 13 | **`getUserFeedback` thumbs up/down** | SDK 25% + Responsible AI 6% | Low | ⏳ TODO |
+
+### Priority 3 — 🔥 Medium ROI (new from analysis)
+
 | # | Feature | Criterion | Effort | Notes |
 |---|---|---|---|---|
-| 6 | **Interactive schedule page** — Done/Cancel buttons on events | Functionality 16% | Low | Currently read-only |
-| 7 | **Rate limiting** on `/api/chat` + `/api/transcribe` | Responsible AI 6% | Low | 5-line `express-rate-limit` |
-| 8 | **Auto priority tagging** — agent tags `priority:high/medium/low` | Productivity 18% | Low | System prompt change + color badges |
-| 9 | **Markdown rendering** — `react-markdown` in chat bubbles | Functionality 16% | Low | Replace manual bold-split hack |
-| 10 | **Confirmation card for scheduling** — human-in-the-loop before saving | Responsible AI 6% + UX 12% | Medium | Copilot ext already has this |
-| 11 | **GitHub Issue creation tool** — `create_github_issue` in Copilot ext path | Innovation 5% + SDK 25% | Medium | Uses GitHub token from `_session` |
-| 12 | **Meeting notes extraction mode** — detect meeting content, extract tasks+attendees | Innovation 5% | Medium | Demo killer feature |
-
-### Priority 3 — 🔥 Medium ROI
-
-| # | Feature | Criterion | Effort | Notes |
-|---|---|---|---|---|
-| 13 | **Drag-and-drop file capture** — drag PDF onto CaptureBar | UX 12% | Low | Zero new packages |
-| 14 | **Source citation in responses** — `[ref:abc123]` links to inbox items | Responsible AI 6% | Medium | Hallucination grounding |
-| 15 | **Prompt injection input check** — heuristic scan + ⚠️ badge | Responsible AI 6% | Low | Already patched context injection |
-| 16 | **App Insights telemetry** — 3-line init, Azure-native observability | Azure 18% | Low | `applicationinsights` package |
-| 17 | **Daily digest** — AI-generated morning briefing | Productivity 18% | Medium | `/api/digest` + modal |
-| 18 | **Keyboard shortcuts** — `Ctrl+K` focus, `Ctrl+Shift+V` voice | UX 12% | Low | Signal intentional design |
-| 19 | **Weekly insights page** — AI analysis of 7-day productivity | Innovation 5% | Medium | `/insights` page |
-| 20 | **Deep health check** — ping OpenAI + Cosmos, return latency | Functionality 16% | Low | Visible in demo |
+| 14 | **ACS SMS urgent alerts** | Azure 18% + Productivity 18% | Low-Med | Live demo wow factor — phone buzzes |
+| 15 | **Azure AI Language PII Detection** | Responsible AI 6% + Azure 18% | Medium | New distinct Azure service |
+| 16 | **Azure AI Search + Vector Embeddings** | Azure 18% + Productivity 18% | Medium | Semantic search |
+| 17 | **Weekly PDF export** (`pdfkit` already installed) | Productivity 18% + Func 16% | Medium | Uses dead dependency |
+| 18 | **`@github/copilot-sdk` streaming: true** | SDK 25% | Medium | SDK drives tokens, not fallback |
+| 19 | **GitHub Issue creation tool** | SDK 25% + Innovation 5% | Medium | Uses GitHub token from `_session` |
+| 20 | **Meeting notes extraction mode** | Innovation 5% | Medium | Demo killer |
+| 21 | **Source citation** `[ref:abc123]` | Responsible AI 6% | Medium | Hallucination grounding |
+| 22 | **App Insights telemetry** | Azure 18% | Low | 3-line init |
+| 23 | **Keyboard shortcuts** `Ctrl+K` / `Ctrl+Shift+V` | UX 12% | Low | Intentional design signal |
 
 ---
 

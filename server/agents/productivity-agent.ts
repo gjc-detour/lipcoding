@@ -198,25 +198,23 @@ const TOOLS: PromptFunction[] = [
     type: "function",
     function: {
       name: "save_item",
-      description:
-        "Save a note, task, event, or file to the user's personal inbox",
+      description: "Save a note, task, event, or file to the user's personal inbox",
       strict: true,
       parameters: {
         type: "object",
         properties: {
           type: { type: "string", enum: ["note", "task", "event", "file"] },
-          raw: {
-            type: "string",
-            description: "The original content from the user",
-          },
+          raw: { type: "string", description: "The original content from the user" },
           summary: {
-            type: "string",
-            description: "A concise AI-generated summary",
+            anyOf: [{ type: "string" }, { type: "null" }],
+            description: "A concise AI-generated summary, or null to auto-generate from raw",
           },
           tags: {
-            type: "array",
-            items: { type: "string" },
-            description: "Relevant tags/keywords",
+            anyOf: [
+              { type: "array", items: { type: "string" } },
+              { type: "null" },
+            ],
+            description: "Relevant tags/keywords, or null for no tags",
           },
           due_date: {
             anyOf: [{ type: "string" }, { type: "null" }],
@@ -238,7 +236,10 @@ const TOOLS: PromptFunction[] = [
         type: "object",
         properties: {
           title: { type: "string" },
-          description: { type: "string" },
+          description: {
+            anyOf: [{ type: "string" }, { type: "null" }],
+            description: "Optional description of the event",
+          },
           due_at: { type: "string", description: "ISO8601 datetime" },
           item_id: {
             anyOf: [{ type: "string" }, { type: "null" }],
@@ -293,11 +294,20 @@ const TOOLS: PromptFunction[] = [
         type: "object",
         properties: {
           id: { type: "string", description: "The 8-char prefix or full ID of the item to update (from context)" },
-          summary: { type: "string", description: "New summary, or null to keep existing" },
-          tags: { type: "array", items: { type: "string" }, description: "New tags, or null to keep existing" },
-          due_date: { type: "string", description: "New ISO8601 due date, or null to keep existing" },
+          summary: {
+            anyOf: [{ type: "string" }, { type: "null" }],
+            description: "New summary, or null to keep existing",
+          },
+          tags: {
+            anyOf: [{ type: "array", items: { type: "string" } }, { type: "null" }],
+            description: "New tags, or null to keep existing",
+          },
+          due_date: {
+            anyOf: [{ type: "string" }, { type: "null" }],
+            description: "New ISO8601 due date, or null to keep existing",
+          },
         },
-        required: ["id"],
+        required: ["id", "summary", "tags", "due_date"],
         additionalProperties: false,
       },
     },
@@ -440,20 +450,6 @@ function optionalString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function ensureTags(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error('Tool argument "tags" must be an array of strings.');
-  }
-
-  const tags = value.filter((tag): tag is string => typeof tag === "string");
-
-  if (tags.length !== value.length) {
-    throw new Error('Tool argument "tags" must contain only strings.');
-  }
-
-  return tags;
-}
-
 function parseToolArguments(rawArguments: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(rawArguments);
   return ensureObject(parsed);
@@ -563,11 +559,13 @@ async function dispatchTool(
 ): Promise<DispatchToolResult> {
   switch (toolName) {
     case "save_item": {
+      const rawStr = ensureString(rawArgs.raw, "raw");
       const args: SaveItemArgs = {
         type: ensureString(rawArgs.type, "type") as SaveItemArgs["type"],
-        raw: ensureString(rawArgs.raw, "raw"),
-        summary: ensureString(rawArgs.summary, "summary"),
-        tags: ensureTags(rawArgs.tags),
+        raw: rawStr,
+        // Fallback: if model passes null summary, generate from first 120 chars of raw
+        summary: optionalString(rawArgs.summary) ?? rawStr.slice(0, 120).trimEnd(),
+        tags: Array.isArray(rawArgs.tags) ? (rawArgs.tags as string[]).filter(t => typeof t === "string") : [],
         due_date: optionalString(rawArgs.due_date),
       };
 
@@ -578,16 +576,14 @@ async function dispatchTool(
       });
 
       return {
-        result: {
-          item: savedItem,
-        },
+        result: { item: savedItem },
         references: [toInboxReference(savedItem)],
       };
     }
     case "schedule_event": {
       const args: ScheduleEventArgs = {
         title: ensureString(rawArgs.title, "title"),
-        description: ensureString(rawArgs.description, "description"),
+        description: optionalString(rawArgs.description) ?? "",
         due_at: ensureString(rawArgs.due_at, "due_at"),
         item_id: optionalString(rawArgs.item_id),
       };
