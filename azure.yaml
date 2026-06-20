@@ -1,0 +1,11 @@
+name: lipcoding-productivity
+metadata:
+  template: lipcoding-productivity@0.0.1
+services:
+  web:
+    project: .
+    language: ts
+    host: containerapp
+    docker:
+      path: Dockerfile
+      remoteBuild: true
