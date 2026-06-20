@@ -1,5 +1,6 @@
 {
   "appContainerApps": "ca-",
   "appManagedEnvironments": "cae-",
-  "containerRegistryRegistries": "cr"
+  "containerRegistryRegistries": "cr",
+  "cognitiveServicesAccounts": "cog-"
 }

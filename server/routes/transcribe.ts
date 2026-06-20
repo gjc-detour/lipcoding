@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
-import { AzureOpenAI, toFile } from "openai";
+import OpenAI, { toFile } from "openai";
 import { logger } from "../lib/logger.js";
 import { getContext } from "../lib/requestContext.js";
 
@@ -11,24 +11,16 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB — Whisper's hard limit
 });
 
-function createWhisperClient(): AzureOpenAI {
+function createWhisperClient(): OpenAI {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
-  const deployment = process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT ?? "whisper";
 
   if (!endpoint) throw new Error("AZURE_OPENAI_ENDPOINT is not set");
   if (!apiKey) throw new Error("AZURE_OPENAI_API_KEY is not set");
 
-  // AzureOpenAI handles Azure-specific routing:
-  // - appends /openai/deployments/{deployment}/audio/transcriptions
-  // - sends api-key header (not Authorization: Bearer)
-  // - adds ?api-version= query param
-  return new AzureOpenAI({
-    endpoint,
-    apiKey,
-    apiVersion: "2024-02-01",
-    deployment,
-  });
+  // Use plain OpenAI client with baseURL — works correctly with Azure AI Foundry
+  // endpoints (e.g. .../openai/v1). AzureOpenAI constructs wrong paths for Foundry URLs.
+  return new OpenAI({ baseURL: endpoint, apiKey });
 }
 
 transcribeRouter.post(

@@ -39,15 +39,15 @@ async function extractWithDocIntelligence(buffer: Buffer): Promise<{ text: strin
 }
 
 // ── unpdf (ESM-native pdfjs-dist wrapper, fallback) ───────────────────────────
-// Uses pdf-parse v2 (ESM-native, wraps pdfjs-dist v5) — no createRequire needed
+// Uses pdf-parse v2 (ESM-native, wraps pdfjs-dist) — no createRequire needed
 async function extractWithPdfParse(buffer: Buffer): Promise<{ text: string; pageCount: number }> {
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   const result = await parser.getText();
   await parser.destroy();
   return {
-    text: (result.text as string).trim(),
-    pageCount: (result.pages as unknown[]).length ?? 1,
+    text: result.text.trim(),
+    pageCount: result.pages.length,
   };
 }
 
