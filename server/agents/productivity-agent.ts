@@ -1,4 +1,4 @@
-import { AzureOpenAI } from "@azure/openai";
+import OpenAI from "openai";
 
 const SYSTEM_PROMPT = `You are a productivity assistant integrated into a developer's workflow via GitHub Copilot.
 Your goal is to help users manage their tasks, time, and focus.
@@ -27,6 +27,13 @@ interface AgentOutput {
   };
 }
 
+export function createAIClient(): OpenAI {
+  return new OpenAI({
+    baseURL: process.env.AZURE_OPENAI_ENDPOINT!,
+    apiKey: process.env.AZURE_OPENAI_API_KEY!,
+  });
+}
+
 export async function processWithAgent(input: AgentInput): Promise<AgentOutput> {
   const { message, confirmation } = input;
 
@@ -38,21 +45,16 @@ export async function processWithAgent(input: AgentInput): Promise<AgentOutput> 
     return { response: "❌ Action cancelled." };
   }
 
-  // Use Azure OpenAI for intelligent processing
-  const client = new AzureOpenAI({
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT!,
-    apiKey: process.env.AZURE_OPENAI_API_KEY!,
-    apiVersion: "2024-08-01-preview",
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o",
-  });
+  const client = createAIClient();
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o";
 
   const completion = await client.chat.completions.create({
-    model: process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o",
+    model: deployment,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: message },
     ],
-    max_tokens: 1024,
+    max_tokens: 4096,
     temperature: 0.7,
   });
 

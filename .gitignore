@@ -9,6 +9,9 @@ dist/
 .env.local
 .env.*.local
 
+# Azure Developer CLI (contains env secrets)
+.azure/
+
 # IDE
 .vscode/
 .idea/
@@ -19,3 +22,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Test artifacts
+test-output.json

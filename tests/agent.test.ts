@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { processWithAgent } from "../server/agents/productivity-agent";
 
-// Mock Azure OpenAI
-vi.mock("@azure/openai", () => ({
-  AzureOpenAI: vi.fn().mockImplementation(() => ({
+// Mock openai
+vi.mock("openai", () => ({
+  default: vi.fn().mockImplementation(() => ({
     chat: {
       completions: {
         create: vi.fn().mockResolvedValue({
