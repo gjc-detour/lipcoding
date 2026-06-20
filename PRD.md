@@ -7,7 +7,7 @@
 
 **LipCoding** is a bilingual (Korean/English) personal productivity assistant that acts as a smart inbox. Users drop anything — a text note, a voice recording, or a PDF document — and the AI agent automatically classifies, summarizes, extracts tasks and deadlines, stores everything in the cloud, and sends reminders when items are due.
 
-The application is built as a **GitHub Copilot Chat Extension** (accessible via `@lipcoding` in VS Code Copilot Chat) and as a **standalone web application**, sharing the same AI agent backend and persistent storage.
+The application is a **standalone web application** powered by the GitHub Copilot SDK (BYOK with Azure AI Foundry) and built with Azure cloud services. The `/api/copilot` endpoint also supports the GitHub Copilot Extensions protocol, making the same agent accessible from Copilot Chat.
 
 ---
 
@@ -21,9 +21,9 @@ Knowledge workers and developers lose productivity by context-switching between 
 
 ## 3. Target Audience
 
-- Developers using GitHub Copilot who want to capture ideas, tasks, and notes without leaving their editor
+- Developers and knowledge workers who want AI to organize their notes, tasks, and schedules automatically
 - Bilingual users (Korean/English) who work across both languages
-- Knowledge workers who receive information in multiple formats (voice memos, PDFs, text)
+- Anyone who receives information in multiple formats (voice memos, PDFs, text) and needs it organized
 
 ---
 
@@ -103,7 +103,7 @@ The web chat uses **Server-Sent Events (SSE)** streaming:
 - Full conversation history passed as `payload.messages`
 - User identity extracted from the `_session` message (no separate auth needed)
 - SSE response with tool call events and confirmation requests
-- Works via `@lipcoding` mention in GitHub Copilot Chat (VS Code, github.com)
+- Accessible via `@lipcoding` in GitHub Copilot Chat when the extension is registered
 
 ### 5.6 Scheduled Notifications
 - **In-browser**: `node-cron` fires every minute → queries due events → SSE push to connected `EventSource` → `NotificationToast` component appears top-right
