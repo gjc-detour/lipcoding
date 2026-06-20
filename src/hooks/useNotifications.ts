@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { getCsrfToken } from "../lib/api";
 import type { NotificationPayload } from "../lib/types";
 
 export function useNotifications(enabled = true) {
@@ -10,9 +9,6 @@ export function useNotifications(enabled = true) {
       await fetch(`/api/notifications/dismiss/${eventId}`, {
         method: "POST",
         credentials: "same-origin",
-        headers: {
-          "x-csrf-token": await getCsrfToken(),
-        },
       });
     } finally {
       setNotifications((currentNotifications) =>
