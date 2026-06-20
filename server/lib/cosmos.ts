@@ -182,6 +182,19 @@ async function readInboxDocument(
   }
 }
 
+async function readInboxDocumentOwner(id: string): Promise<string | null> {
+  const { inbox } = await getContainers();
+  const { resources } = await inbox.items
+    .query<Pick<CosmosInboxItemDocument, "user_id" | "userId">>({
+      query: "SELECT TOP 1 c.user_id, c.userId FROM c WHERE c.id = @id",
+      parameters: [{ name: "@id", value: id }],
+    })
+    .fetchAll();
+
+  const resource = resources[0];
+  return resource?.user_id ?? resource?.userId ?? null;
+}
+
 async function readScheduledEventDocument(
   id: string,
   userId: string
@@ -200,6 +213,19 @@ async function readScheduledEventDocument(
 
     throw error;
   }
+}
+
+async function readScheduledEventDocumentOwner(id: string): Promise<string | null> {
+  const { scheduledEvents } = await getContainers();
+  const { resources } = await scheduledEvents.items
+    .query<Pick<CosmosScheduledEventDocument, "user_id" | "userId">>({
+      query: "SELECT TOP 1 c.user_id, c.userId FROM c WHERE c.id = @id",
+      parameters: [{ name: "@id", value: id }],
+    })
+    .fetchAll();
+
+  const resource = resources[0];
+  return resource?.user_id ?? resource?.userId ?? null;
 }
 
 export async function initCosmos(): Promise<void> {
@@ -366,6 +392,10 @@ export async function cosmosGetInboxItem(
   return item ? mapInboxDocument(item) : null;
 }
 
+export async function cosmosGetInboxItemOwner(id: string): Promise<string | null> {
+  return readInboxDocumentOwner(id);
+}
+
 export async function cosmosUpdateInboxItem(
   id: string,
   userId: string,
@@ -514,6 +544,18 @@ export async function cosmosGetScheduledEvents(
   return resources.map(mapScheduledEventDocument);
 }
 
+export async function cosmosGetScheduledEventById(
+  id: string,
+  userId: string
+): Promise<ScheduledEvent | null> {
+  const event = await readScheduledEventDocument(id, userId);
+  return event ? mapScheduledEventDocument(event) : null;
+}
+
+export async function cosmosGetScheduledEventOwner(id: string): Promise<string | null> {
+  return readScheduledEventDocumentOwner(id);
+}
+
 export async function cosmosGetUpcomingEvents(
   userId: string,
   limitHours: number
@@ -572,4 +614,9 @@ export async function cosmosCloseScheduledEvent(
 
   await scheduledEvents.item(id, effectiveUserId).delete();
   return true;
+}
+
+export async function cosmosHealthCheck(): Promise<void> {
+  const { inbox } = await getContainers();
+  await inbox.items.query({ query: "SELECT TOP 1 1 FROM c" }).fetchAll();
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { Router, Request, Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import {
   DocumentAnalysisClient,
@@ -38,6 +38,10 @@ async function extractWithDocIntelligence(buffer: Buffer): Promise<{ text: strin
   const text = result.content ?? "";
   const pageCount = result.pages?.length ?? 1;
   return { text: text.trim(), pageCount };
+}
+
+function isAllowedExtractMimeType(mimetype: string): boolean {
+  return mimetype === "application/pdf" || mimetype.startsWith("text/");
 }
 
 // ── unpdf (ESM-native pdfjs-dist wrapper, fallback) ───────────────────────────
@@ -90,6 +94,11 @@ extractRouter.post(
     }
 
     const { originalname, mimetype, buffer, size } = req.file;
+    if (!isAllowedExtractMimeType(mimetype)) {
+      res.status(415).json({ error: "Unsupported file type. Please upload a PDF or text file." });
+      return;
+    }
+
     const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf");
 
     logger.info("File extraction request", { correlationId, filename: originalname, mimetype, size });
@@ -161,3 +170,17 @@ extractRouter.post(
   }
 );
 
+extractRouter.use(
+  (err: Error, _req: Request, res: Response, next: NextFunction) => {
+    if (
+      err instanceof multer.MulterError
+        ? err.code === "LIMIT_FILE_SIZE"
+        : err.message === "LIMIT_FILE_SIZE"
+    ) {
+      res.status(413).json({ error: "File too large. Maximum 20 MB." });
+      return;
+    }
+
+    next(err);
+  }
+);

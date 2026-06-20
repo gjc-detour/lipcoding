@@ -7,9 +7,11 @@ import {
   type CopilotSDKInput,
 } from "../agents/productivity-agent.js";
 import { logger } from "../lib/logger.js";
+import { aiLimiter } from "../middleware/aiRateLimit.js";
 import { getInboxItems } from "../services/storage.js";
 
 export const chatRouter = Router();
+chatRouter.use(aiLimiter);
 
 const chatMessageSchema = z.object({
   role: z.string(),
@@ -24,7 +26,6 @@ const chatRequestSchema = z.object({
 
 const chatStreamQuerySchema = z.object({
   message: z.string().min(1),
-  userId: z.string().optional(),
   messages: z.string().optional(),
 });
 
@@ -57,6 +58,7 @@ const COPILOT_SDK_ENABLED = process.env.COPILOT_SDK_ENABLED !== "false";
 chatRouter.post("/", async (req: Request, res: Response) => {
   try {
     const t0 = Date.now();
+    const correlationId = req.correlationId ?? "none";
     const parsed = chatRequestSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -70,6 +72,12 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     const { message, messages } = parsed.data;
     const effectiveUserId = req.userId;
     const conversation = buildConversation(message, messages);
+    logger.info("Chat request", {
+      correlationId,
+      userId: effectiveUserId,
+      messageLength: message.length,
+      hasHistory: Boolean(messages?.length),
+    });
     const previousItems = await getInboxItems(effectiveUserId);
     const previousItemIds = new Set(previousItems.map((item) => item.id));
 
@@ -104,12 +112,23 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     const items = (await getInboxItems(effectiveUserId)).filter(
       (item) => !previousItemIds.has(item.id)
     );
+    const model = process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o";
+    const latencyMs = Date.now() - t0;
+
+    logger.info("Chat response", {
+      correlationId,
+      userId: effectiveUserId,
+      model,
+      latencyMs,
+      toolsUsed: result.toolsUsed ?? 0,
+      itemsSaved: items.length,
+    });
 
     res.json({
       response: result.response,
       items: items.length > 0 ? items : undefined,
-      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
-      latencyMs: Date.now() - t0,
+      model,
+      latencyMs,
     });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown error";
@@ -121,6 +140,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
 chatRouter.get("/stream", async (req: Request, res: Response) => {
   try {
     const t0 = Date.now();
+    const correlationId = req.correlationId ?? "none";
     const parsed = chatStreamQuerySchema.safeParse(req.query);
 
     if (!parsed.success) {
@@ -131,10 +151,16 @@ chatRouter.get("/stream", async (req: Request, res: Response) => {
       return;
     }
 
-    const { message, messages, userId } = parsed.data;
+    const { message, messages } = parsed.data;
     const history = parseConversationQuery(messages);
-    const effectiveUserId = req.userId || userId?.trim() || "default";
+    const effectiveUserId = req.userId;
     const conversation = buildConversation(message, history);
+    logger.info("Chat request", {
+      correlationId,
+      userId: effectiveUserId,
+      messageLength: message.length,
+      hasHistory: Boolean(history?.length),
+    });
     const previousItems = await getInboxItems(effectiveUserId);
     const previousItemIds = new Set(previousItems.map((item) => item.id));
 
@@ -173,13 +199,24 @@ chatRouter.get("/stream", async (req: Request, res: Response) => {
     const items = (await getInboxItems(effectiveUserId)).filter(
       (item) => !previousItemIds.has(item.id)
     );
+    const model = process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o";
+    const latencyMs = Date.now() - t0;
+
+    logger.info("Chat response", {
+      correlationId,
+      userId: effectiveUserId,
+      model,
+      latencyMs,
+      toolsUsed: result.toolsUsed ?? 0,
+      itemsSaved: items.length,
+    });
 
     write({
       type: "done",
       response: result.response,
       items: items.length > 0 ? items : undefined,
-      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
-      latencyMs: Date.now() - t0,
+      model,
+      latencyMs,
     });
     res.end();
   } catch (error: unknown) {

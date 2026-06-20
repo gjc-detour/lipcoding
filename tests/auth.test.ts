@@ -5,6 +5,7 @@ import request from "supertest";
 import { db } from "../server/db.js";
 import { authenticateMiddleware } from "../server/middleware/authenticate.js";
 import { authRouter } from "../server/routes/auth.js";
+import { eventsRouter } from "../server/routes/events.js";
 import { inboxRouter } from "../server/routes/inbox.js";
 
 describe.sequential("Authentication", () => {
@@ -16,6 +17,7 @@ describe.sequential("Authentication", () => {
   app.use("/api/auth", authRouter);
   app.use(authenticateMiddleware);
   app.use("/api/inbox", inboxRouter);
+  app.use("/api/events", eventsRouter);
 
   beforeEach(() => {
     db.exec(`
@@ -82,6 +84,23 @@ describe.sequential("Authentication", () => {
     expect(user2List.body.total).toBe(0);
 
     const user2Get = await user2Agent.get(`/api/inbox/${createResponse.body.id}`);
-    expect(user2Get.status).toBe(404);
+    expect(user2Get.status).toBe(403);
+
+    const user2Complete = await user2Agent.patch(`/api/inbox/${createResponse.body.id}/complete`);
+    expect(user2Complete.status).toBe(403);
+
+    const user2Delete = await user2Agent.delete(`/api/inbox/${createResponse.body.id}`);
+    expect(user2Delete.status).toBe(403);
+
+    const eventResponse = await gjcAgent.post("/api/events").send({
+      title: "Private reminder",
+      due_at: "2026-06-22T09:00:00.000Z",
+      item_id: createResponse.body.id,
+    });
+
+    expect(eventResponse.status).toBe(201);
+
+    const user2EventDelete = await user2Agent.delete(`/api/events/${eventResponse.body.id}`);
+    expect(user2EventDelete.status).toBe(403);
   });
 });

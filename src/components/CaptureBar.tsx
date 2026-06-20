@@ -57,6 +57,11 @@ export default function CaptureBar({
 
     setVoiceError(null);
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Voice recording is unavailable in this browser or insecure context.");
+      return;
+    }
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -114,6 +119,11 @@ export default function CaptureBar({
     const [file] = Array.from(event.target.files ?? []);
     if (!file) return;
     event.target.value = "";
+
+    if (file.size > 20 * 1024 * 1024) {
+      setVoiceError("File too large. Max 20 MB.");
+      return;
+    }
 
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 

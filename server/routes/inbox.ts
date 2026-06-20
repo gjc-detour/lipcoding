@@ -5,8 +5,10 @@ import {
   createInboxItem,
   deleteInboxItem,
   getInboxItem,
+  getInboxItemOwner,
   getInboxItems,
 } from "../services/storage.js";
+import { assertOwnership } from "./ownership.js";
 
 export const inboxRouter = Router();
 
@@ -110,7 +112,16 @@ inboxRouter.get("/:id", async (req, res) => {
   try {
     const item = await getInboxItem(parsed.data.id, req.userId);
 
+    if (item && !assertOwnership(item.user_id, req.userId, res)) {
+      return;
+    }
+
     if (!item) {
+      const itemOwner = await getInboxItemOwner(parsed.data.id);
+      if (itemOwner && !assertOwnership(itemOwner, req.userId, res)) {
+        return;
+      }
+
       res.status(404).json({ error: "Inbox item not found" });
       return;
     }
@@ -131,6 +142,21 @@ inboxRouter.patch("/:id/complete", async (req, res) => {
   }
 
   try {
+    const item = await getInboxItem(parsed.data.id, req.userId);
+    if (item && !assertOwnership(item.user_id, req.userId, res)) {
+      return;
+    }
+
+    if (!item) {
+      const itemOwner = await getInboxItemOwner(parsed.data.id);
+      if (itemOwner && !assertOwnership(itemOwner, req.userId, res)) {
+        return;
+      }
+
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
     const success = await completeInboxItem(parsed.data.id, req.userId);
     if (!success) {
       res.status(404).json({ error: "Not found" });
@@ -152,6 +178,21 @@ inboxRouter.delete("/:id", async (req, res) => {
   }
 
   try {
+    const item = await getInboxItem(parsed.data.id, req.userId);
+    if (item && !assertOwnership(item.user_id, req.userId, res)) {
+      return;
+    }
+
+    if (!item) {
+      const itemOwner = await getInboxItemOwner(parsed.data.id);
+      if (itemOwner && !assertOwnership(itemOwner, req.userId, res)) {
+        return;
+      }
+
+      res.status(404).json({ error: "Inbox item not found" });
+      return;
+    }
+
     const deleted = await deleteInboxItem(parsed.data.id, req.userId);
 
     if (!deleted) {

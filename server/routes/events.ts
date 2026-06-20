@@ -3,8 +3,11 @@ import { z } from "zod";
 import {
   closeScheduledEvent,
   createScheduledEvent,
+  getScheduledEventById,
+  getScheduledEventOwner,
   getScheduledEvents,
 } from "../services/storage.js";
+import { assertOwnership } from "./ownership.js";
 
 export const eventsRouter = Router();
 
@@ -76,6 +79,21 @@ eventsRouter.delete("/:id", async (req, res) => {
   }
 
   try {
+    const event = await getScheduledEventById(parsed.data.id, req.userId);
+    if (event && !assertOwnership(event.user_id, req.userId, res)) {
+      return;
+    }
+
+    if (!event) {
+      const eventOwner = await getScheduledEventOwner(parsed.data.id);
+      if (eventOwner && !assertOwnership(eventOwner, req.userId, res)) {
+        return;
+      }
+
+      res.status(404).json({ error: "Scheduled event not found" });
+      return;
+    }
+
     const deleted = await closeScheduledEvent(parsed.data.id, req.userId);
 
     if (!deleted) {

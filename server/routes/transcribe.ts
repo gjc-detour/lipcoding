@@ -1,28 +1,35 @@
 import { randomUUID } from "crypto";
-import { Router, Request, Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
-import OpenAI, { toFile } from "openai";
+import { AzureOpenAI, toFile } from "openai";
 import { uploadBlob } from "../lib/blobStorage.js";
 import { logger } from "../lib/logger.js";
 import { getContext } from "../lib/requestContext.js";
+import { aiLimiter } from "../middleware/aiRateLimit.js";
 
 export const transcribeRouter = Router();
+transcribeRouter.use(aiLimiter);
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB — Whisper's hard limit
 });
 
-function createWhisperClient(): OpenAI {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+function createWhisperClient(): AzureOpenAI {
+  // Whisper uses its own dedicated endpoint (eastus2 AI Services)
+  // Falls back to main endpoint if dedicated one not set
+  const endpoint = process.env.AZURE_OPENAI_WHISPER_ENDPOINT ?? process.env.AZURE_OPENAI_ENDPOINT;
+  const apiKey = process.env.AZURE_OPENAI_WHISPER_KEY ?? process.env.AZURE_OPENAI_API_KEY;
+  const deployment = process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT ?? "whisper";
 
   if (!endpoint) throw new Error("AZURE_OPENAI_ENDPOINT is not set");
   if (!apiKey) throw new Error("AZURE_OPENAI_API_KEY is not set");
 
-  // Use plain OpenAI client with baseURL — works correctly with Azure AI Foundry
-  // endpoints (e.g. .../openai/v1). AzureOpenAI constructs wrong paths for Foundry URLs.
-  return new OpenAI({ baseURL: endpoint, apiKey });
+  return new AzureOpenAI({ endpoint, apiKey, apiVersion: "2024-02-01", deployment });
+}
+
+function isAllowedAudioMimeType(mimetype: string): boolean {
+  return mimetype.startsWith("audio/") || mimetype === "video/webm";
 }
 
 transcribeRouter.post(
@@ -37,10 +44,30 @@ transcribeRouter.post(
       return;
     }
 
+    if (!isAllowedAudioMimeType(req.file.mimetype)) {
+      res.status(415).json({ error: "Unsupported audio format. Please upload audio/* or video/webm." });
+      return;
+    }
+
+    if (!process.env.AZURE_OPENAI_ENDPOINT?.trim()) {
+      res
+        .status(503)
+        .json({ error: "Voice transcription not available — AZURE_OPENAI_ENDPOINT not configured" });
+      return;
+    }
+
+    if (!process.env.AZURE_OPENAI_API_KEY?.trim()) {
+      res
+        .status(503)
+        .json({ error: "Voice transcription not available — AZURE_OPENAI_API_KEY not configured" });
+      return;
+    }
+
     const deployment = process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT ?? "whisper";
 
     logger.info("Transcription request", {
       correlationId,
+      userId: req.userId,
       size: req.file.size,
       mimetype: req.file.mimetype,
       deployment,
@@ -68,8 +95,10 @@ transcribeRouter.post(
       const durationMs = Date.now() - start;
       logger.info("Transcription complete", {
         correlationId,
+        userId: req.userId,
         durationMs,
         chars: typeof transcription === "string" ? transcription.length : 0,
+        language: "auto-detect",
       });
 
       let fileUrl: string | undefined;
@@ -95,5 +124,20 @@ transcribeRouter.post(
       logger.error("Transcription failed", { correlationId, error: errMsg });
       res.status(500).json({ error: "Transcription failed", details: errMsg });
     }
+  }
+);
+
+transcribeRouter.use(
+  (err: Error, _req: Request, res: Response, next: NextFunction) => {
+    if (
+      err instanceof multer.MulterError
+        ? err.code === "LIMIT_FILE_SIZE"
+        : err.message === "LIMIT_FILE_SIZE"
+    ) {
+      res.status(413).json({ error: "Audio file too large. Maximum 25 MB." });
+      return;
+    }
+
+    next(err);
   }
 );

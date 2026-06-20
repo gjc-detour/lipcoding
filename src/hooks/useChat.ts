@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { sendChat } from "../lib/api";
+import { ApiError, sendChat } from "../lib/api";
 import type { ChatMessage, ToolEvent } from "../lib/types";
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
@@ -45,7 +45,9 @@ export function useChat() {
         setLastModel(undefined);
         setLastLatencyMs(undefined);
         const message =
-          caughtError instanceof Error
+          caughtError instanceof ApiError && caughtError.status === 429
+            ? "You're sending messages too fast. Please wait a moment."
+            : caughtError instanceof Error
             ? caughtError.message
             : "Sorry, something went wrong while contacting the assistant.";
 
@@ -114,7 +116,6 @@ export function useChat() {
 
         const params = new URLSearchParams({
           message: trimmedText,
-          userId: "default",
           messages: JSON.stringify(history.map(({ role, content }) => ({ role, content }))),
         });
         const eventSource = new EventSource(`/api/chat/stream?${params.toString()}`);

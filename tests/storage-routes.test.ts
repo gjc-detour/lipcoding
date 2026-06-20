@@ -8,6 +8,10 @@ import { inboxRouter } from "../server/routes/inbox.js";
 describe.sequential("Storage routes", () => {
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => {
+    req.userId = "default";
+    next();
+  });
   app.use("/api/inbox", inboxRouter);
   app.use("/api/events", eventsRouter);
 

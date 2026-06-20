@@ -7,7 +7,10 @@ import {
   cosmosCreateScheduledEvent,
   cosmosDeleteInboxItem,
   cosmosGetInboxItem,
+  cosmosGetInboxItemOwner,
   cosmosGetInboxItems,
+  cosmosGetScheduledEventById,
+  cosmosGetScheduledEventOwner,
   cosmosGetScheduledEvents,
   cosmosGetUpcomingEvents,
   cosmosMarkEventNotified,
@@ -147,6 +150,14 @@ function sqliteGetInboxItemById(id: string, userId = DEFAULT_USER_ID): InboxItem
   return row ? mapInboxItem(row) : null;
 }
 
+function sqliteGetInboxItemOwner(id: string): string | null {
+  const row = db
+    .prepare("SELECT user_id FROM inbox_items WHERE id = ?")
+    .get(id) as { user_id: string } | undefined;
+
+  return row?.user_id ?? null;
+}
+
 function sqliteGetScheduledEventById(
   id: string,
   userId = DEFAULT_USER_ID
@@ -156,6 +167,14 @@ function sqliteGetScheduledEventById(
     .get(id, resolveUserId(userId)) as ScheduledEventRow | undefined;
 
   return row ? mapScheduledEvent(row) : null;
+}
+
+function sqliteGetScheduledEventOwner(id: string): string | null {
+  const row = db
+    .prepare("SELECT user_id FROM scheduled_events WHERE id = ?")
+    .get(id) as { user_id: string } | undefined;
+
+  return row?.user_id ?? null;
 }
 
 function sqliteCreateInboxItem(
@@ -506,6 +525,14 @@ export async function getInboxItem(
   return Promise.resolve(sqliteGetInboxItemById(id, userId));
 }
 
+export async function getInboxItemOwner(id: string): Promise<string | null> {
+  if (useCosmosDB) {
+    return cosmosGetInboxItemOwner(id);
+  }
+
+  return Promise.resolve(sqliteGetInboxItemOwner(id));
+}
+
 export async function updateInboxItem(
   id: string,
   patch: Partial<InboxItem>,
@@ -598,5 +625,17 @@ export async function getScheduledEventById(
   id: string,
   userId = DEFAULT_USER_ID
 ): Promise<ScheduledEvent | null> {
+  if (useCosmosDB) {
+    return cosmosGetScheduledEventById(id, userId);
+  }
+
   return Promise.resolve(sqliteGetScheduledEventById(id, userId));
+}
+
+export async function getScheduledEventOwner(id: string): Promise<string | null> {
+  if (useCosmosDB) {
+    return cosmosGetScheduledEventOwner(id);
+  }
+
+  return Promise.resolve(sqliteGetScheduledEventOwner(id));
 }

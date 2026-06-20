@@ -8,6 +8,16 @@ import type {
   ScheduledEvent,
 } from "./types";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as
@@ -15,7 +25,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
       | null;
     const message =
       errorBody?.details ?? errorBody?.error ?? `Request failed with ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   if (response.status === 204) {

@@ -3,12 +3,21 @@ import type { RequestHandler } from "express";
 import { logger } from "../lib/logger.js";
 import { requestContext } from "../lib/requestContext.js";
 
+declare global {
+  namespace Express {
+    interface Request {
+      correlationId?: string;
+    }
+  }
+}
+
 export const requestLoggerMiddleware: RequestHandler = (req, res, next) => {
   const correlationId = randomUUID();
   const startedAt = Date.now();
   const path = req.path;
   const userAgent = req.get("user-agent") ?? "unknown";
 
+  req.correlationId = correlationId;
   res.setHeader("X-Correlation-Id", correlationId);
 
   requestContext.run({ correlationId }, () => {

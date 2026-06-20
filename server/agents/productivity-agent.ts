@@ -134,6 +134,7 @@ export interface AgentInput {
 export interface AgentOutput {
   response: string;
   references?: CopilotReference[];
+  toolsUsed?: number;
   confirmationRequest?: {
     id: string;
     title: string;
@@ -1068,6 +1069,7 @@ export async function processWithAzureFallback(
   const { correlationId } = getContext();
   const references: CopilotReference[] = [];
   const contextSection = await buildContextSection(userId);
+  let toolsUsed = 0;
 
   const conversation: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT + contextSection },
@@ -1111,6 +1113,7 @@ export async function processWithAzureFallback(
       return {
         response: normalizeText(assistantMessage.content),
         references: uniqueReferences(references),
+        toolsUsed,
       };
     }
 
@@ -1119,6 +1122,7 @@ export async function processWithAzureFallback(
       const preview = getToolPreview(call.function.name, args);
       logger.info("Tool call", { correlationId, toolName: call.function.name, args });
       callbacks?.onToolCall?.(call.function.name, "start", preview);
+      toolsUsed += 1;
 
       let toolResult: DispatchToolResult;
       try {
@@ -1178,11 +1182,13 @@ export async function processWithAzureFallback(
     return {
       response: parts.join("\n"),
       references: uniqueReferences(references),
+      toolsUsed,
     };
   }
 
   return {
     response: normalizeText(trimmedFinalContent),
     references: uniqueReferences(references),
+    toolsUsed,
   };
 }

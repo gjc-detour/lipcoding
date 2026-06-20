@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
@@ -67,6 +67,21 @@ const distPath = path.join(__dirname, "..", "dist");
 app.use(express.static(distPath));
 app.get("*", (_req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
+});
+
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  const correlationId = req.correlationId ?? "none";
+  logger.error("Unhandled server error", {
+    correlationId,
+    error: err.message,
+    stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
+    path: req.path,
+    method: req.method,
+  });
+
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error", correlationId });
+  }
 });
 
 app.listen(PORT, () => {

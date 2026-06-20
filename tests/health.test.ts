@@ -12,5 +12,14 @@ describe("Health API", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
     expect(res.body.timestamp).toBeDefined();
+    expect(res.body.version).toBeDefined();
+    expect(res.body.services).toEqual({
+      db: { status: "ok", backend: "sqlite" },
+      openai: { status: "unconfigured", model: "gpt-4o" },
+      whisper: { status: "unconfigured" },
+      documentIntelligence: { status: "unconfigured" },
+      blobStorage: { status: "unconfigured" },
+      notifications: { status: "unconfigured" },
+    });
   });
 });
