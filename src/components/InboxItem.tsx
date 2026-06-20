@@ -49,6 +49,8 @@ export default function InboxItem({ item, onDelete, onComplete }: InboxItemProps
 
   return (
     <article
+      role="article"
+      aria-label={item.summary}
       className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${
         item.completed ? "opacity-70" : ""
       }`}
@@ -85,6 +87,7 @@ export default function InboxItem({ item, onDelete, onComplete }: InboxItemProps
                   type="checkbox"
                   checked={Boolean(item.completed)}
                   disabled={Boolean(item.completed) || !onComplete}
+                  aria-label={`Mark complete: ${item.summary}`}
                   onChange={() => {
                     if (onComplete) {
                       void onComplete(item.id);
@@ -138,7 +141,7 @@ export default function InboxItem({ item, onDelete, onComplete }: InboxItemProps
               void handleDelete();
             }}
             className="rounded-full p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
-            aria-label="Delete inbox item"
+            aria-label={`Delete: ${item.summary}`}
             title="Delete"
           >
             🗑️

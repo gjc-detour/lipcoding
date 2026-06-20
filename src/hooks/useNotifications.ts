@@ -1,23 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { getCsrfToken } from "../lib/api";
 import type { NotificationPayload } from "../lib/types";
-
-const AUTO_DISMISS_MS = 10_000;
 
 export function useNotifications(enabled = true) {
   const [notifications, setNotifications] = useState<NotificationPayload[]>([]);
-  const timeoutIdsRef = useRef(new Map<string, number>());
 
-  const dismiss = useCallback((eventId: string) => {
-    const timeoutId = timeoutIdsRef.current.get(eventId);
-
-    if (timeoutId !== undefined) {
-      window.clearTimeout(timeoutId);
-      timeoutIdsRef.current.delete(eventId);
+  const dismiss = useCallback(async (eventId: string) => {
+    try {
+      await fetch(`/api/notifications/dismiss/${eventId}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "x-csrf-token": await getCsrfToken(),
+        },
+      });
+    } finally {
+      setNotifications((currentNotifications) =>
+        currentNotifications.filter((notification) => notification.eventId !== eventId)
+      );
     }
-
-    setNotifications((currentNotifications) =>
-      currentNotifications.filter((notification) => notification.eventId !== eventId)
-    );
   }, []);
 
   useEffect(() => {
@@ -36,17 +37,6 @@ export function useNotifications(enabled = true) {
           (notification) => notification.eventId !== payload.eventId
         ),
       ]);
-
-      const existingTimeoutId = timeoutIdsRef.current.get(payload.eventId);
-      if (existingTimeoutId !== undefined) {
-        window.clearTimeout(existingTimeoutId);
-      }
-
-      const timeoutId = window.setTimeout(() => {
-        dismiss(payload.eventId);
-      }, AUTO_DISMISS_MS);
-
-      timeoutIdsRef.current.set(payload.eventId, timeoutId);
     };
 
     eventSource.addEventListener("notification", handleNotification as EventListener);
@@ -54,11 +44,6 @@ export function useNotifications(enabled = true) {
     return () => {
       eventSource.removeEventListener("notification", handleNotification as EventListener);
       eventSource.close();
-
-      for (const timeoutId of timeoutIdsRef.current.values()) {
-        window.clearTimeout(timeoutId);
-      }
-      timeoutIdsRef.current.clear();
     };
   }, [dismiss, enabled]);
 

@@ -2,6 +2,19 @@ import { getContext } from "./requestContext.js";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
+const SENSITIVE_KEYS = new Set([
+  "apikey",
+  "authorization",
+  "password",
+  "token",
+  "secret",
+  "connectionstring",
+  "accountkey",
+  "fileurl",
+  "bloburl",
+  "sasurl",
+]);
+
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 10,
   info: 20,
@@ -45,27 +58,75 @@ function serializeMeta(meta: Record<string, unknown>): string {
   }
 }
 
+function normalizeSensitiveKey(key: string): string {
+  return key.toLowerCase().replace(/[_-]/g, "");
+}
+
+export function scrubSensitiveData(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    const normalizedKey = normalizeSensitiveKey(key);
+
+    if (SENSITIVE_KEYS.has(normalizedKey)) {
+      result[key] = "[REDACTED]";
+      continue;
+    }
+
+    if (key.toLowerCase() === "message" && typeof value === "string" && value.length > 200) {
+      result[key] = `${value.slice(0, 200)}...[truncated]`;
+      continue;
+    }
+
+    if (key.toLowerCase() === "args" && typeof value === "object" && value !== null) {
+      result[key] = "[tool args hidden]";
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      result[key] = value.map((entry) =>
+        typeof entry === "object" && entry !== null
+          ? scrubSensitiveData(entry as Record<string, unknown>)
+          : entry
+      );
+      continue;
+    }
+
+    if (typeof value === "object" && value !== null) {
+      result[key] = scrubSensitiveData(value as Record<string, unknown>);
+      continue;
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
 function writeLog(level: LogLevel, message: string, meta?: Record<string, unknown>) {
   if (!shouldLog(level)) {
     return;
   }
 
   const context = getContext();
+  const sanitizedMeta = meta ? scrubSensitiveData(meta) : undefined;
   const correlationId =
-    typeof meta?.correlationId === "string" ? meta.correlationId : context.correlationId;
+    typeof sanitizedMeta?.correlationId === "string"
+      ? sanitizedMeta.correlationId
+      : context.correlationId;
   const timestamp = new Date().toISOString();
   const logEntry = {
     level,
     message,
     timestamp,
     correlationId,
-    ...(meta ?? {}),
+    ...(sanitizedMeta ?? {}),
   };
 
   process.stdout.write(`${JSON.stringify(logEntry)}\n`);
 
   if (!IS_PRODUCTION) {
-    const humanMetaSource = { ...(meta ?? {}) };
+    const humanMetaSource = { ...(sanitizedMeta ?? {}) };
     delete humanMetaSource.correlationId;
     const humanMeta =
       Object.keys(humanMetaSource).length > 0 ? ` ${serializeMeta(humanMetaSource)}` : "";

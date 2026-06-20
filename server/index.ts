@@ -1,9 +1,11 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { doubleCsrf } from "csrf-csrf";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { SESSION_COOKIE_NAME } from "./lib/auth.js";
 import { authRouter } from "./routes/auth.js";
 import { copilotRouter } from "./routes/copilot.js";
 import { healthRouter } from "./routes/health.js";
@@ -32,6 +34,23 @@ logger.info("Storage backend configured", { backend: storageBackend });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const isProduction = process.env.NODE_ENV === "production";
+const csrfCookieName = isProduction ? "__Host-psifi.x-csrf-token" : "psifi.x-csrf-token";
+
+const { generateCsrfToken, doubleCsrfProtection } = doubleCsrf({
+  getSecret: () => process.env.CSRF_SECRET ?? "lipcoding-csrf-secret-change-in-prod",
+  getSessionIdentifier: (req) =>
+    req.cookies?.[SESSION_COOKIE_NAME] ??
+    `${req.ip}:${req.get("user-agent") ?? "unknown"}:${req.get("origin") ?? "same-origin"}`,
+  cookieName: csrfCookieName,
+  cookieOptions: {
+    sameSite: "strict",
+    secure: isProduction,
+    httpOnly: true,
+    path: "/",
+  },
+  getCsrfTokenFromRequest: (req) => req.headers["x-csrf-token"],
+});
 
 // CORS: allow the configured origin only, or same-origin in production.
 // Never reflect arbitrary origins with credentials — prevents CWE-942.
@@ -46,18 +65,24 @@ app.use(
   })
 );
 app.use(cookieParser());
+app.use(requestLoggerMiddleware);
 
 // API routes
 app.use("/api/copilot", express.raw({ type: "*/*" }), copilotRouter);
-app.use(express.json());
-app.use(requestLoggerMiddleware);
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.get("/api/csrf-token", (req, res) => {
+  res.json({ token: generateCsrfToken(req, res) });
+});
+app.use("/api/auth/login", doubleCsrfProtection);
+app.use("/api/auth/logout", doubleCsrfProtection);
 app.use("/api/auth", authRouter);
 app.use(authenticateMiddleware);
 app.use("/api/health", healthRouter);
-app.use("/api/chat", chatRouter);
-app.use("/api/inbox", inboxRouter);
-app.use("/api/events", eventsRouter);
-app.use("/api/notifications", notificationsRouter);
+app.use("/api/chat", doubleCsrfProtection, chatRouter);
+app.use("/api/inbox", doubleCsrfProtection, inboxRouter);
+app.use("/api/events", doubleCsrfProtection, eventsRouter);
+app.use("/api/notifications", doubleCsrfProtection, notificationsRouter);
 app.use("/api/transcribe", transcribeRouter);
 app.use("/api/extract", extractRouter);
 
@@ -71,6 +96,17 @@ app.get("*", (_req, res) => {
 
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   const correlationId = req.correlationId ?? "none";
+
+  if ("code" in err && err.code === "EBADCSRFTOKEN") {
+    logger.warn("Invalid CSRF token", {
+      correlationId,
+      path: req.path,
+      method: req.method,
+    });
+    res.status(403).json({ error: "Invalid CSRF token", correlationId });
+    return;
+  }
+
   logger.error("Unhandled server error", {
     correlationId,
     error: err.message,

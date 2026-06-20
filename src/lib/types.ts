@@ -18,6 +18,8 @@ export interface InboxFilters {
   to?: string;
 }
 
+export type PriorityFilter = "high" | "medium" | "low";
+
 export interface InboxItemsResponse {
   items: InboxItem[];
   total: number;

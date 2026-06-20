@@ -52,6 +52,16 @@ function parseConversationQuery(messages?: string): AgentInput["messages"] | und
   return result.data;
 }
 
+function isCopilotCliError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalizedMessage = message.toLowerCase();
+  return (
+    normalizedMessage.includes("cli") ||
+    normalizedMessage.includes("not found") ||
+    normalizedMessage.includes("empty mode")
+  );
+}
+
 // Detect if Copilot SDK is usable — falls back to Azure direct if CLI is missing
 const COPILOT_SDK_ENABLED = process.env.COPILOT_SDK_ENABLED !== "false";
 
@@ -92,13 +102,8 @@ chatRouter.post("/", async (req: Request, res: Response) => {
       try {
         result = await processWithCopilotSDK(input);
       } catch (sdkError) {
-        const sdkErrMsg = sdkError instanceof Error ? sdkError.message : String(sdkError);
-        const isCLIError =
-          sdkErrMsg.toLowerCase().includes("cli") ||
-          sdkErrMsg.toLowerCase().includes("not found") ||
-          sdkErrMsg.toLowerCase().includes("empty mode");
-
-        if (isCLIError) {
+        if (isCopilotCliError(sdkError)) {
+          const sdkErrMsg = sdkError instanceof Error ? sdkError.message : String(sdkError);
           logger.warn("Copilot SDK unavailable, falling back to Azure direct", { error: sdkErrMsg });
           result = await processWithAzureFallback({ message, messages: conversation, userId: effectiveUserId });
         } else {
@@ -182,19 +187,38 @@ chatRouter.get("/stream", async (req: Request, res: Response) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    const result = await processWithAzureFallback(
-      { message, messages: conversation, userId: effectiveUserId },
-      {
-        onToken: (token) => write({ type: "token", content: token }),
-        onToolCall: (tool, status, preview) =>
-          write({
-            type: status === "start" ? "tool_call" : "tool_result",
-            tool,
-            status,
-            preview,
-          }),
+    const input: CopilotSDKInput = {
+      message,
+      messages: conversation,
+      userId: effectiveUserId,
+    };
+    const callbacks = {
+      onToken: (token: string) => write({ type: "token", content: token }),
+      onToolCall: (tool: string, status: "start" | "done", preview?: string) =>
+        write({
+          type: status === "start" ? "tool_call" : "tool_result",
+          tool,
+          status,
+          preview,
+        }),
+    };
+
+    let result;
+    if (COPILOT_SDK_ENABLED) {
+      try {
+        result = await processWithCopilotSDK(input, callbacks);
+      } catch (sdkError) {
+        if (isCopilotCliError(sdkError)) {
+          const sdkErrMsg = sdkError instanceof Error ? sdkError.message : String(sdkError);
+          logger.warn("Copilot SDK unavailable, falling back to Azure direct", { error: sdkErrMsg });
+          result = await processWithAzureFallback(input, callbacks);
+        } else {
+          throw sdkError;
+        }
       }
-    );
+    } else {
+      result = await processWithAzureFallback(input, callbacks);
+    }
 
     const items = (await getInboxItems(effectiveUserId)).filter(
       (item) => !previousItemIds.has(item.id)

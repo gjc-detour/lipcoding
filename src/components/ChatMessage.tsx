@@ -7,6 +7,7 @@ interface ChatMessageProps {
   isTyping?: boolean;
   attribution?: string;
   toolEvents?: ToolEvent[];
+  onRetry?: () => void | Promise<void>;
 }
 
 function TypingIndicator() {
@@ -28,6 +29,7 @@ export default function ChatMessage({
   isTyping = false,
   attribution,
   toolEvents = [],
+  onRetry,
 }: ChatMessageProps) {
   const isUser = message?.role === "user";
 
@@ -54,6 +56,19 @@ export default function ChatMessage({
             </div>
             {!isUser && attribution ? (
               <p className="mt-1 text-[10px] text-gray-400">⚡ {attribution}</p>
+            ) : null}
+            {message?.role === "assistant" &&
+            message.content.startsWith("Sorry") &&
+            onRetry ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void onRetry();
+                }}
+                className="mt-2 flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-500"
+              >
+                ↺ Retry
+              </button>
             ) : null}
           </>
         )}

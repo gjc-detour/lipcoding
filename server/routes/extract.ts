@@ -155,7 +155,7 @@ extractRouter.post(
         try {
           const itemId = randomUUID();
           fileUrl = await uploadBlob(req.userId, itemId, originalname, buffer, mimetype);
-          logger.info("File uploaded to Blob", { correlationId, filename: originalname, fileUrl });
+          logger.info("File uploaded to Blob", { correlationId, filename: originalname });
         } catch (err) {
           logger.warn("Blob upload failed (non-fatal)", { correlationId, error: String(err) });
         }

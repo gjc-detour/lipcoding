@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchInboxItems } from "../lib/api";
-import type { InboxItem } from "../lib/types";
+import type { InboxItem, PriorityFilter } from "../lib/types";
 
 interface UseSearchParams {
   query: string;
   type?: InboxItem["type"];
+  priority?: PriorityFilter;
   tag?: string;
   from?: string;
   to?: string;
@@ -19,7 +20,7 @@ function toBoundaryIso(value: string | undefined, boundary: "start" | "end"): st
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-export function useSearch({ query, type, tag, from, to }: UseSearchParams) {
+export function useSearch({ query, type, priority, tag, from, to }: UseSearchParams) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -30,15 +31,21 @@ export function useSearch({ query, type, tag, from, to }: UseSearchParams) {
     () => ({
       query: query.trim(),
       type,
+      priority,
       tag: tag?.trim() ?? "",
       from: from?.trim() ?? "",
       to: to?.trim() ?? "",
     }),
-    [from, query, tag, to, type]
+    [from, priority, query, tag, to, type]
   );
 
   const hasActiveSearch = Boolean(
-    normalized.query || normalized.type || normalized.tag || normalized.from || normalized.to
+    normalized.query ||
+      normalized.type ||
+      normalized.priority ||
+      normalized.tag ||
+      normalized.from ||
+      normalized.to
   );
 
   useEffect(() => {
@@ -58,7 +65,10 @@ export function useSearch({ query, type, tag, from, to }: UseSearchParams) {
           setError(null);
           const response = await fetchInboxItems(normalized.query, {
             type: normalized.type,
-            tag: normalized.tag || undefined,
+            tag:
+              normalized.priority !== undefined
+                ? `priority:${normalized.priority}`
+                : normalized.tag || undefined,
             from: toBoundaryIso(normalized.from, "start"),
             to: toBoundaryIso(normalized.to, "end"),
           });

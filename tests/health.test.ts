@@ -16,10 +16,10 @@ describe("Health API", () => {
     expect(res.body.services).toEqual({
       db: { status: "ok", backend: "sqlite" },
       openai: { status: "unconfigured", model: "gpt-4o" },
-      whisper: { status: "unconfigured" },
-      documentIntelligence: { status: "unconfigured" },
-      blobStorage: { status: "unconfigured" },
-      notifications: { status: "unconfigured" },
+      whisper: { status: "unconfigured", transcription: false },
+      documentIntelligence: { status: "unconfigured", extraction: false },
+      blobStorage: { status: "unconfigured", uploads: false },
+      notifications: { status: "unconfigured", email: false },
     });
   });
 });

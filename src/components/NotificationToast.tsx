@@ -1,15 +1,41 @@
+import { useEffect, useRef } from "react";
 import { formatDateTime, formatRelativeTime } from "../lib/time";
 import type { NotificationPayload } from "../lib/types";
 
+const AUTO_DISMISS_MS = 10_000;
+
 interface NotificationToastProps {
   notifications: NotificationPayload[];
-  onDismiss: (eventId: string) => void;
+  onDismiss: (eventId: string) => Promise<void> | void;
 }
 
 export default function NotificationToast({
   notifications,
   onDismiss,
 }: NotificationToastProps) {
+  const timeoutIdsRef = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    for (const timeoutId of timeoutIdsRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    timeoutIdsRef.current.clear();
+
+    for (const notification of notifications) {
+      const timeoutId = window.setTimeout(() => {
+        void onDismiss(notification.eventId);
+      }, AUTO_DISMISS_MS);
+      timeoutIdsRef.current.set(notification.eventId, timeoutId);
+    }
+
+    return () => {
+      for (const timeoutId of timeoutIdsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutIdsRef.current.clear();
+    };
+  }, [notifications, onDismiss]);
+
   if (notifications.length === 0) {
     return null;
   }
@@ -44,7 +70,7 @@ export default function NotificationToast({
 
                   <button
                     type="button"
-                    onClick={() => onDismiss(notification.eventId)}
+                    onClick={() => void onDismiss(notification.eventId)}
                     className="rounded-full p-1 text-gray-400 transition hover:bg-amber-50 hover:text-amber-700"
                     aria-label={`Dismiss reminder for ${notification.title}`}
                   >

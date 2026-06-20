@@ -68,8 +68,6 @@ transcribeRouter.post(
     logger.info("Transcription request", {
       correlationId,
       userId: req.userId,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
       deployment,
     });
 
@@ -112,7 +110,7 @@ transcribeRouter.post(
             req.file.buffer,
             req.file.mimetype
           );
-          logger.info("File uploaded to Blob", { correlationId, filename, fileUrl });
+          logger.info("File uploaded to Blob", { correlationId, filename });
         } catch (err) {
           logger.warn("Blob upload failed (non-fatal)", { correlationId, error: String(err) });
         }

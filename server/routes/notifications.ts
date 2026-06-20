@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { registerSSEClient } from "../services/notificationService.js";
+import { markEventNotified } from "../services/storage.js";
 
 export const notificationsRouter = Router();
 
@@ -24,4 +25,9 @@ notificationsRouter.get("/", (req, res) => {
     unsubscribe();
     res.end();
   });
+});
+
+notificationsRouter.post("/dismiss/:eventId", async (req, res) => {
+  await markEventNotified(req.params.eventId, req.userId);
+  res.json({ success: true });
 });

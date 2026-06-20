@@ -4,6 +4,7 @@ import request from "supertest";
 import { db } from "../server/db.js";
 import { eventsRouter } from "../server/routes/events.js";
 import { inboxRouter } from "../server/routes/inbox.js";
+import { notificationsRouter } from "../server/routes/notifications.js";
 
 describe.sequential("Storage routes", () => {
   const app = express();
@@ -14,6 +15,7 @@ describe.sequential("Storage routes", () => {
   });
   app.use("/api/inbox", inboxRouter);
   app.use("/api/events", eventsRouter);
+  app.use("/api/notifications", notificationsRouter);
 
   beforeEach(() => {
     db.exec(`
@@ -139,5 +141,26 @@ describe.sequential("Storage routes", () => {
     expect(filteredResponse.body.total).toBe(1);
     expect(filteredResponse.body.items).toHaveLength(1);
     expect(filteredResponse.body.items[0].id).toBe(juneTask.body.id);
+  });
+
+  it("marks dismissed notifications as notified", async () => {
+    const eventResponse = await request(app).post("/api/events").send({
+      title: "Standup",
+      description: "Daily sync",
+      due_at: "2026-06-23T09:00:00.000Z",
+    });
+
+    const dismissResponse = await request(app).post(
+      `/api/notifications/dismiss/${eventResponse.body.id as string}`
+    );
+
+    expect(dismissResponse.status).toBe(200);
+    expect(dismissResponse.body).toEqual({ success: true });
+
+    const notifiedValue = db
+      .prepare("SELECT notified FROM scheduled_events WHERE id = ?")
+      .get(eventResponse.body.id) as { notified: number } | undefined;
+
+    expect(notifiedValue?.notified).toBe(1);
   });
 });

@@ -25,9 +25,9 @@ function AppShell() {
       {!isAuthenticated ? (
         <LoginPage />
       ) : (
-        <div className="flex h-screen bg-gray-50 text-gray-900">
+        <div className="flex min-h-screen overflow-hidden bg-gray-50 text-gray-900 xl:h-screen">
           <Sidebar />
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden pb-20 xl:pb-0">
             <Routes>
               <Route path="/" element={<InboxPage />} />
               <Route path="/schedule" element={<SchedulePage />} />

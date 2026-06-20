@@ -1,13 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import CaptureBar from "../components/CaptureBar";
 import ChatMessage from "../components/ChatMessage";
 import InboxItem from "../components/InboxItem";
-import SearchBar from "../components/SearchBar";
+import SearchBar, { PriorityFilterPills } from "../components/SearchBar";
 import { useChat } from "../hooks/useChat";
 import { useInbox } from "../hooks/useInbox";
 import { useSearch } from "../hooks/useSearch";
-import type { InboxItem as InboxItemModel } from "../lib/types";
+import type { InboxItem as InboxItemModel, PriorityFilter } from "../lib/types";
 
 function LoadingSkeleton() {
   return (
@@ -27,24 +27,34 @@ function PageShell({
   title,
   subtitle,
   headerContent,
+  mobileTabs,
   leftPanel,
+  leftPanelClassName,
+  leftPanelAriaLabel,
   rightPanelTitle,
   rightPanelSubtitle,
   rightPanelCount,
   rightPanelContent,
+  rightPanelClassName,
+  rightPanelAriaLabel,
 }: {
   title: string;
   subtitle: string;
   headerContent: ReactNode;
+  mobileTabs?: ReactNode;
   leftPanel: ReactNode;
+  leftPanelClassName?: string;
+  leftPanelAriaLabel?: string;
   rightPanelTitle: string;
   rightPanelSubtitle: string;
   rightPanelCount: number;
   rightPanelContent: ReactNode;
+  rightPanelClassName?: string;
+  rightPanelAriaLabel?: string;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="border-b border-gray-200 bg-white/90 px-8 py-6 backdrop-blur">
+      <header className="border-b border-gray-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6 xl:px-8 xl:py-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{title}</h1>
@@ -54,11 +64,15 @@ function PageShell({
         </div>
       </header>
 
-      <div className="flex-1 overflow-hidden px-8 py-6">
-        <div className="mx-auto grid h-full max-w-6xl gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          {leftPanel}
+      {mobileTabs}
 
-          <section className="flex min-h-0 flex-col rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex-1 overflow-hidden px-4 py-4 sm:px-6 xl:px-8 xl:py-6">
+        <div className="mx-auto grid h-full max-w-6xl gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          <section aria-label={leftPanelAriaLabel} className={leftPanelClassName}>
+            {leftPanel}
+          </section>
+
+          <section aria-label={rightPanelAriaLabel} className={rightPanelClassName}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">{rightPanelTitle}</h2>
@@ -77,22 +91,34 @@ function PageShell({
 }
 
 function CaptureInboxView() {
-  const { items, loading, error, refetch, deleteItem, markItemComplete } = useInbox();
+  const [priority, setPriority] = useState<PriorityFilter | undefined>();
+  const { items, loading, error, refetch, deleteItem, markItemComplete } = useInbox("", priority);
+  const [mobileTab, setMobileTab] = useState<"chat" | "items">("items");
   const {
     messages,
     sendMessageStream,
+    retryLastMessage,
     isLoading,
     toolEvents,
     clearHistory,
     lastModel,
     lastLatencyMs,
   } = useChat();
-  const lastAssistantMessageId = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.id;
+
+  const lastAssistantMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant"),
+    [messages]
+  );
 
   const handleCaptureSubmit = async (text: string) => {
+    setMobileTab("chat");
     await sendMessageStream(text);
+    await refetch();
+  };
+
+  const handleRetryLastMessage = async () => {
+    setMobileTab("chat");
+    await retryLastMessage();
     await refetch();
   };
 
@@ -116,8 +142,34 @@ function CaptureInboxView() {
           <CaptureBar onSubmit={handleCaptureSubmit} isLoading={isLoading} />
         </>
       }
+      mobileTabs={
+        <div className="flex border-b border-gray-200 bg-white xl:hidden">
+          {([
+            ["chat", "Chat"],
+            ["items", "Items"],
+          ] as const).map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setMobileTab(tab)}
+              aria-pressed={mobileTab === tab}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition ${
+                mobileTab === tab
+                  ? "border-b-2 border-indigo-600 text-indigo-600"
+                  : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+      leftPanelAriaLabel="AI conversation"
+      leftPanelClassName={`min-h-0 flex-col ${
+        mobileTab === "chat" ? "flex" : "hidden"
+      } xl:flex`}
       leftPanel={
-        <section className="flex min-h-0 flex-col rounded-3xl border border-gray-200 bg-gradient-to-br from-indigo-50 via-white to-white p-5 shadow-sm">
+        <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-gray-200 bg-gradient-to-br from-indigo-50 via-white to-white p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-gray-900">AI conversation</h2>
             <p className="text-sm text-gray-500">Responses appear here after each capture.</p>
@@ -134,8 +186,13 @@ function CaptureInboxView() {
               <ChatMessage
                 key={message.id}
                 message={message}
+                onRetry={
+                  message.id === lastAssistantMessage?.id && message.role === "assistant"
+                    ? handleRetryLastMessage
+                    : undefined
+                }
                 attribution={
-                  message.id === lastAssistantMessageId &&
+                  message.id === lastAssistantMessage?.id &&
                   lastModel &&
                   typeof lastLatencyMs === "number"
                     ? `${lastModel} · ${lastLatencyMs}ms`
@@ -147,13 +204,19 @@ function CaptureInboxView() {
               />
             ))}
           </div>
-        </section>
+        </div>
       }
       rightPanelTitle="Captured items"
       rightPanelSubtitle="Newest first, with quick access to the original capture."
       rightPanelCount={items.length}
+      rightPanelAriaLabel="Captured items"
+      rightPanelClassName={`min-h-0 flex-col rounded-3xl border border-gray-200 bg-white p-5 shadow-sm ${
+        mobileTab === "items" ? "flex" : "hidden"
+      } xl:flex`}
       rightPanelContent={
         <>
+          <PriorityFilterPills priority={priority} onChange={setPriority} />
+
           {error ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
               {error}
@@ -233,14 +296,16 @@ function SearchTips({
 function SearchInboxView() {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<InboxItemModel["type"] | undefined>();
+  const [priority, setPriority] = useState<PriorityFilter | undefined>();
   const [tag, setTag] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const { items, total, loading, error } = useSearch({ query, type, tag, from, to });
+  const { items, total, loading, error } = useSearch({ query, type, priority, tag, from, to });
 
   const activeFilters = [
     query ? { label: "Query", value: query } : null,
     type ? { label: "Type", value: type } : null,
+    priority ? { label: "Priority", value: priority } : null,
     tag ? { label: "Tag", value: tag } : null,
     from ? { label: "From", value: from } : null,
     to ? { label: "To", value: to } : null,
@@ -256,18 +321,21 @@ function SearchInboxView() {
         <SearchBar
           query={query}
           type={type}
+          priority={priority}
           tag={tag}
           from={from}
           to={to}
           total={total}
           onQueryChange={setQuery}
           onTypeChange={setType}
+          onPriorityChange={setPriority}
           onTagChange={setTag}
           onFromChange={setFrom}
           onToChange={setTo}
           onClear={() => {
             setQuery("");
             setType(undefined);
+            setPriority(undefined);
             setTag("");
             setFrom("");
             setTo("");
@@ -275,9 +343,11 @@ function SearchInboxView() {
         />
       }
       leftPanel={<SearchTips activeFilters={activeFilters} />}
+      leftPanelClassName="flex min-h-0 flex-col"
       rightPanelTitle="Search results"
       rightPanelSubtitle="Filtered results from your inbox, newest first."
       rightPanelCount={total}
+      rightPanelClassName="flex min-h-0 flex-col rounded-3xl border border-gray-200 bg-white p-5 shadow-sm"
       rightPanelContent={
         <>
           {error ? (

@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import type { InboxItem } from "../lib/types";
+import type { InboxItem, PriorityFilter } from "../lib/types";
 
 type SearchType = InboxItem["type"];
 
 interface SearchBarProps {
   query: string;
   type?: SearchType;
+  priority?: PriorityFilter;
   tag: string;
   from: string;
   to: string;
   total: number;
   onQueryChange: (value: string) => void;
   onTypeChange: (value?: SearchType) => void;
+  onPriorityChange: (value?: PriorityFilter) => void;
   onTagChange: (value: string) => void;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
@@ -26,15 +28,54 @@ const TYPE_OPTIONS: Array<{ label: string; value?: SearchType }> = [
   { label: "Files", value: "file" },
 ];
 
+const PRIORITY_OPTIONS: Array<{ label: string; value?: PriorityFilter }> = [
+  { label: "All" },
+  { label: "🔴 High", value: "high" },
+  { label: "🟡 Medium", value: "medium" },
+  { label: "🟢 Low", value: "low" },
+];
+
+interface PriorityFilterPillsProps {
+  priority?: PriorityFilter;
+  onChange: (value?: PriorityFilter) => void;
+}
+
+export function PriorityFilterPills({ priority, onChange }: PriorityFilterPillsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-medium text-gray-700">Priority</span>
+      {PRIORITY_OPTIONS.map((option) => {
+        const isActive = option.value === priority || (!option.value && !priority);
+        return (
+          <button
+            key={option.label}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              isActive
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "border border-gray-200 bg-white text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function SearchBar({
   query,
   type,
+  priority,
   tag,
   from,
   to,
   total,
   onQueryChange,
   onTypeChange,
+  onPriorityChange,
   onTagChange,
   onFromChange,
   onToChange,
@@ -61,8 +102,8 @@ export default function SearchBar({
   }, [localQuery, onQueryChange, query]);
 
   const hasActiveFilters = useMemo(
-    () => Boolean(query || type || tag || from || to),
-    [from, query, tag, to, type]
+    () => Boolean(query || type || priority || tag || from || to),
+    [from, priority, query, tag, to, type]
   );
 
   return (
@@ -111,6 +152,16 @@ export default function SearchBar({
           })}
         </div>
 
+        <PriorityFilterPills
+          priority={priority}
+          onChange={(value) => {
+            onPriorityChange(value);
+            if (value) {
+              onTagChange("");
+            }
+          }}
+        />
+
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
           <label className="flex flex-col gap-2 text-sm text-gray-600">
             <span className="font-medium text-gray-700">From</span>
@@ -137,7 +188,12 @@ export default function SearchBar({
             <input
               type="text"
               value={tag}
-              onChange={(event) => onTagChange(event.target.value)}
+              onChange={(event) => {
+                if (priority) {
+                  onPriorityChange(undefined);
+                }
+                onTagChange(event.target.value);
+              }}
               placeholder="Filter by tag"
               className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
             />

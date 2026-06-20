@@ -149,6 +149,11 @@ export interface CopilotSDKInput {
   userId?: string;
 }
 
+export type StreamingCallbacks = {
+  onToken?: (token: string) => void;
+  onToolCall?: (tool: string, status: "start" | "done", preview?: string) => void;
+};
+
 type ToolMessage = {
   role: "tool";
   content: string;
@@ -835,7 +840,8 @@ async function getCopilotClient(): Promise<CopilotClient> {
 }
 
 export async function processWithCopilotSDK(
-  input: CopilotSDKInput
+  input: CopilotSDKInput,
+  callbacks?: StreamingCallbacks
 ): Promise<AgentOutput> {
   const client = await getCopilotClient();
   const model = getAzureModel();
@@ -849,14 +855,19 @@ export async function processWithCopilotSDK(
   const promptText = buildCopilotPrompt(input);
   const tools = createProductivityTools(userId, savedArtifacts);
   const contextSection = await buildContextSection(userId);
-  const toolCalls = new Map<string, { toolName: string; startedAt: number }>();
+  const toolCalls = new Map<
+    string,
+    { toolName: string; startedAt: number; preview?: string }
+  >();
+  const streaming = Boolean(callbacks?.onToken || callbacks?.onToolCall);
   let sessionResponseText: string | undefined;
   let session: Awaited<ReturnType<CopilotClient["createSession"]>> | null = null;
+  let toolsUsed = 0;
 
   try {
     session = await client.createSession({
       model,
-      streaming: false,
+      streaming,
       tools,
       onPermissionRequest: approveAll,
       provider: {
@@ -870,6 +881,10 @@ export async function processWithCopilotSDK(
       },
     });
 
+    session.on("assistant.message_delta", (event) => {
+      callbacks?.onToken?.(event.data.deltaContent);
+    });
+
     session.on("assistant.message", (event) => {
       sessionResponseText = event.data.content;
       logger.info("Assistant message", {
@@ -880,23 +895,36 @@ export async function processWithCopilotSDK(
     });
 
     session.on("tool.execution_start", (event) => {
+      const preview = event.data.arguments
+        ? getToolPreview(event.data.toolName, event.data.arguments)
+        : undefined;
       toolCalls.set(event.data.toolCallId, {
         toolName: event.data.toolName,
         startedAt: Date.now(),
+        preview,
       });
+      toolsUsed += 1;
+      callbacks?.onToolCall?.(event.data.toolName, "start", preview);
       logger.info("Tool call", {
         correlationId,
         toolName: event.data.toolName,
         toolCallId: event.data.toolCallId,
-        args: event.data.arguments,
       });
     });
 
     session.on("tool.execution_complete", (event) => {
-      const toolCall = toolCalls.get(event.data.toolCallId);
+      const toolCall = toolCalls.get(event.data.toolCallId) as
+        | { toolName: string; startedAt: number; preview?: string }
+        | undefined;
+      const toolName = toolCall?.toolName ?? "unknown";
+      callbacks?.onToolCall?.(
+        toolName,
+        "done",
+        toolCall?.preview
+      );
       logger.info("Tool result", {
         correlationId,
-        toolName: toolCall?.toolName ?? "unknown",
+        toolName,
         toolCallId: event.data.toolCallId,
         success: event.data.success,
         durationMs: toolCall ? Date.now() - toolCall.startedAt : undefined,
@@ -924,6 +952,7 @@ export async function processWithCopilotSDK(
     return {
       response: responseText?.trim() ? responseText : fallbackResponse,
       references: uniqueReferences(savedArtifacts.references),
+      toolsUsed,
     };
   } finally {
     if (session) {
@@ -973,7 +1002,6 @@ export async function processWithAgent(
       logger.info("Tool call", {
         correlationId,
         toolName: functionCall.function.name,
-        args,
       });
 
       let toolResult: DispatchToolResult;
@@ -1116,7 +1144,7 @@ export async function processWithAzureFallback(
     for (const call of toolCalls) {
       const args = parseToolArguments(call.function.arguments);
       const preview = getToolPreview(call.function.name, args);
-      logger.info("Tool call", { correlationId, toolName: call.function.name, args });
+      logger.info("Tool call", { correlationId, toolName: call.function.name });
       callbacks?.onToolCall?.(call.function.name, "start", preview);
       toolsUsed += 1;
 

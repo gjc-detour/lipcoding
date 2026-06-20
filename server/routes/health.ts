@@ -6,6 +6,14 @@ export const healthRouter = Router();
 
 type ServiceState = "ok" | "error" | "unconfigured";
 
+function isConfigured(...values: Array<string | undefined>): boolean {
+  return values.every((value) => Boolean(value?.trim()));
+}
+
+function optionalServiceStatus(configured: boolean): ServiceState {
+  return configured ? "ok" : "unconfigured";
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
     promise,
@@ -19,6 +27,16 @@ healthRouter.get("/", async (_req, res) => {
   const timestamp = new Date().toISOString();
   const backend = process.env.STORAGE_BACKEND === "cosmos" ? "cosmos" : "sqlite";
   const version = process.env.npm_package_version ?? "0.0.1";
+  const whisperConfigured = isConfigured(
+    process.env.AZURE_OPENAI_ENDPOINT,
+    process.env.AZURE_OPENAI_API_KEY
+  );
+  const documentIntelligenceConfigured = isConfigured(
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT,
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
+  );
+  const blobStorageConfigured = isConfigured(process.env.AZURE_STORAGE_CONNECTION_STRING);
+  const notificationsConfigured = isConfigured(process.env.AZURE_COMMUNICATION_CONNECTION_STRING);
   const checks = {
     db: withTimeout(
       Promise.resolve().then(async () => {
@@ -37,16 +55,20 @@ healthRouter.get("/", async (_req, res) => {
       model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
     } as const),
     whisper: Promise.resolve({
-      status: process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT?.trim() ? "ok" : "unconfigured",
+      status: optionalServiceStatus(whisperConfigured),
+      transcription: whisperConfigured,
     } as const),
     documentIntelligence: Promise.resolve({
-      status: process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT?.trim() ? "ok" : "unconfigured",
+      status: optionalServiceStatus(documentIntelligenceConfigured),
+      extraction: documentIntelligenceConfigured,
     } as const),
     blobStorage: Promise.resolve({
-      status: process.env.AZURE_STORAGE_CONNECTION_STRING?.trim() ? "ok" : "unconfigured",
+      status: optionalServiceStatus(blobStorageConfigured),
+      uploads: blobStorageConfigured,
     } as const),
     notifications: Promise.resolve({
-      status: process.env.AZURE_COMMUNICATION_CONNECTION_STRING?.trim() ? "ok" : "unconfigured",
+      status: optionalServiceStatus(notificationsConfigured),
+      email: notificationsConfigured,
     } as const),
   };
   const settled = await Promise.allSettled(Object.values(checks));

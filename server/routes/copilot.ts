@@ -70,18 +70,36 @@ copilotRouter.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const parsedRequest =
-      signature && keyId
-        ? await verifyAndParseRequest(rawBody, signature, keyId, { token })
-        : (() => {
-            logger.warn("Copilot request verification skipped", {
-              reason: "signature headers missing",
-            });
-            return {
-              isValidRequest: true,
-              payload: parseRequestBody(rawBody),
-            };
-          })();
+    let parsedRequest;
+
+    if (!signature || !keyId) {
+      if (process.env.NODE_ENV === "production") {
+        res.status(401);
+        res.write(
+          createErrorsEvent([
+            {
+              type: "agent",
+              message: "Request signature required in production.",
+              code: "SIGNATURE_REQUIRED",
+              identifier: "productivity-agent",
+            },
+          ])
+        );
+        res.write(createDoneEvent());
+        res.end();
+        return;
+      }
+
+      logger.warn("Copilot request verification skipped (dev only)", {
+        reason: "signature headers missing",
+      });
+      parsedRequest = {
+        isValidRequest: true,
+        payload: parseRequestBody(rawBody),
+      };
+    } else {
+      parsedRequest = await verifyAndParseRequest(rawBody, signature, keyId, { token });
+    }
 
     if (!parsedRequest.isValidRequest) {
       res.status(401);

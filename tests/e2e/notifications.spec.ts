@@ -102,7 +102,7 @@ test.describe("Notification toasts", () => {
 
     await expect(page.getByText(NOTIFICATION.title)).toBeVisible({ timeout: 5000 });
     await page
-      .getByRole("button", { name: new RegExp(`Dismiss reminder for ${NOTIFICATION.title}`, "i") })
+      .getByRole("button", { name: /dismiss notification/i })
       .click();
 
     await expect(page.getByText(NOTIFICATION.title)).not.toBeVisible();

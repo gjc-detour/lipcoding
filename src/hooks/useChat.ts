@@ -18,14 +18,17 @@ export function useChat() {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, historyOverride?: ChatMessage[], reuseLastUserMessage = false) => {
       const trimmedText = text.trim();
       if (!trimmedText) {
         return;
       }
 
-      const nextUserMessage = createMessage("user", trimmedText);
-      const nextHistory = [...messages, nextUserMessage];
+      const baseMessages = historyOverride ?? messages;
+      const apiHistory = reuseLastUserMessage ? baseMessages.slice(0, -1) : baseMessages;
+      const nextHistory = reuseLastUserMessage
+        ? baseMessages
+        : [...baseMessages, createMessage("user", trimmedText)];
 
       setMessages(nextHistory);
       setLastModel(undefined);
@@ -34,7 +37,7 @@ export function useChat() {
       setToolEvents([]);
 
       try {
-        const result = await sendChat(trimmedText, nextHistory);
+        const result = await sendChat(trimmedText, apiHistory);
         setLastModel(result.model);
         setLastLatencyMs(result.latencyMs);
         setMessages((currentMessages) => [
@@ -70,19 +73,22 @@ export function useChat() {
   }, []);
 
   const sendMessageStream = useCallback(
-    async (text: string) => {
+    async (text: string, historyOverride?: ChatMessage[], reuseLastUserMessage = false) => {
       const trimmedText = text.trim();
       if (!trimmedText) {
         return;
       }
 
+      const baseMessages = historyOverride ?? messages;
+      const apiHistory = reuseLastUserMessage ? baseMessages.slice(0, -1) : baseMessages;
       if (typeof EventSource === "undefined") {
-        await sendMessage(trimmedText);
+        await sendMessage(trimmedText, baseMessages, reuseLastUserMessage);
         return;
       }
 
-      const nextUserMessage = createMessage("user", trimmedText);
-      const history = [...messages, nextUserMessage];
+      const history = reuseLastUserMessage
+        ? baseMessages
+        : [...baseMessages, createMessage("user", trimmedText)];
       const assistantId = `assistant-${Date.now()}`;
       setToolEvents([]);
 
@@ -116,7 +122,7 @@ export function useChat() {
 
         const params = new URLSearchParams({
           message: trimmedText,
-          messages: JSON.stringify(history.map(({ role, content }) => ({ role, content }))),
+          messages: JSON.stringify(apiHistory.map(({ role, content }) => ({ role, content }))),
         });
         const eventSource = new EventSource(`/api/chat/stream?${params.toString()}`);
 
@@ -210,10 +216,22 @@ export function useChat() {
     [messages, sendMessage]
   );
 
+  const retryLastMessage = useCallback(async () => {
+    const lastUserMsg = [...messages].reverse().find((message) => message.role === "user");
+    if (!lastUserMsg || isLoading) {
+      return;
+    }
+
+    const retryHistory = messages.filter((_, index) => index < messages.length - 1);
+    setMessages(retryHistory);
+    await sendMessageStream(lastUserMsg.content, retryHistory, true);
+  }, [messages, isLoading, sendMessageStream]);
+
   return {
     messages,
     sendMessage,
     sendMessageStream,
+    retryLastMessage,
     isLoading,
     toolEvents,
     clearHistory,

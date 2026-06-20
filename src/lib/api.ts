@@ -18,6 +18,8 @@ export class ApiError extends Error {
   }
 }
 
+let csrfToken: string | null = null;
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as
@@ -33,6 +35,23 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+export function resetCsrfToken(): void {
+  csrfToken = null;
+}
+
+export async function getCsrfToken(): Promise<string> {
+  if (csrfToken) {
+    return csrfToken;
+  }
+
+  const response = await fetch("/api/csrf-token", {
+    credentials: "same-origin",
+  });
+  const data = await parseResponse<{ token: string }>(response);
+  csrfToken = data.token;
+  return csrfToken;
 }
 
 export async function fetchInboxItems(
@@ -69,6 +88,7 @@ export async function createInboxItem(item: Partial<InboxItem>): Promise<InboxIt
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
+      "x-csrf-token": await getCsrfToken(),
     },
     body: JSON.stringify({
       type: item.type,
@@ -86,6 +106,9 @@ export async function deleteInboxItem(id: string): Promise<void> {
   const response = await fetch(`/api/inbox/${id}`, {
     method: "DELETE",
     credentials: "same-origin",
+    headers: {
+      "x-csrf-token": await getCsrfToken(),
+    },
   });
 
   await parseResponse<void>(response);
@@ -95,6 +118,9 @@ export async function completeInboxItem(id: string): Promise<void> {
   const response = await fetch(`/api/inbox/${id}/complete`, {
     method: "PATCH",
     credentials: "same-origin",
+    headers: {
+      "x-csrf-token": await getCsrfToken(),
+    },
   });
 
   await parseResponse<void>(response);
@@ -111,6 +137,9 @@ export async function deleteEvent(id: string): Promise<void> {
   const response = await fetch(`/api/events/${id}`, {
     method: "DELETE",
     credentials: "same-origin",
+    headers: {
+      "x-csrf-token": await getCsrfToken(),
+    },
   });
 
   await parseResponse<void>(response);
@@ -125,6 +154,7 @@ export async function sendChat(
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
+      "x-csrf-token": await getCsrfToken(),
     },
     body: JSON.stringify({
       message,
@@ -143,21 +173,29 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
 }
 
 export async function loginWithToken(token: string): Promise<AuthUser> {
+  resetCsrfToken();
   const response = await fetch("/api/auth/login", {
     method: "POST",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
+      "x-csrf-token": await getCsrfToken(),
     },
     body: JSON.stringify({ token }),
   });
-  return parseResponse<AuthUser>(response);
+  const user = await parseResponse<AuthUser>(response);
+  resetCsrfToken();
+  return user;
 }
 
 export async function logoutCurrentUser(): Promise<void> {
   const response = await fetch("/api/auth/logout", {
     method: "POST",
     credentials: "same-origin",
+    headers: {
+      "x-csrf-token": await getCsrfToken(),
+    },
   });
   await parseResponse<void>(response);
+  resetCsrfToken();
 }

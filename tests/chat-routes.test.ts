@@ -54,7 +54,7 @@ describe("Chat routes", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([savedItem]);
 
-    processWithAzureFallbackMock.mockImplementationOnce(
+    processWithCopilotSDKMock.mockImplementationOnce(
       async (
         _input: unknown,
         callbacks?: {
@@ -83,6 +83,8 @@ describe("Chat routes", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(processWithCopilotSDKMock).toHaveBeenCalledTimes(1);
+    expect(processWithAzureFallbackMock).not.toHaveBeenCalled();
 
     const events = response.text
       .trim()
@@ -118,6 +120,36 @@ describe("Chat routes", () => {
       model: "gpt-4o",
     });
     expect(events[4]?.latencyMs).toEqual(expect.any(Number));
+  });
+
+  it("falls back to Azure direct for streaming when Copilot CLI is unavailable", async () => {
+    getInboxItemsMock.mockResolvedValue([]);
+    processWithCopilotSDKMock.mockRejectedValueOnce(new Error("CLI not found"));
+    processWithAzureFallbackMock.mockImplementationOnce(
+      async (
+        _input: unknown,
+        callbacks?: {
+          onToken?: (token: string) => void;
+          onToolCall?: (tool: string, status: "start" | "done", preview?: string) => void;
+        }
+      ) => {
+        callbacks?.onToken?.("Fallback");
+        return {
+          response: "Fallback",
+          references: [],
+        };
+      }
+    );
+
+    const response = await request(app).get("/api/chat/stream").query({
+      message: "Fallback please",
+      messages: JSON.stringify([]),
+    });
+
+    expect(response.status).toBe(200);
+    expect(processWithCopilotSDKMock).toHaveBeenCalledTimes(1);
+    expect(processWithAzureFallbackMock).toHaveBeenCalledTimes(1);
+    expect(response.text).toContain('"content":"Fallback"');
   });
 
   it("keeps POST chat responses non-streaming", async () => {

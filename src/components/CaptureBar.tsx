@@ -172,6 +172,7 @@ export default function CaptureBar({
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          aria-label="Capture anything — text, voice, or file"
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
               e.preventDefault();
@@ -189,6 +190,8 @@ export default function CaptureBar({
               type="button"
               onClick={() => void handleVoiceToggle()}
               disabled={isTranscribing}
+              aria-pressed={isRecording}
+              aria-label="Record voice message"
               title={isRecording ? "Stop recording" : "Record voice — Korean & English supported (AI transcription)"}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition disabled:cursor-wait ${
                 isRecording
@@ -215,6 +218,7 @@ export default function CaptureBar({
               type="file"
               accept=".pdf,.txt,.md"
               onChange={handleFileChange}
+              aria-label="Upload file (PDF, text, markdown)"
               className="hidden"
             />
             <button
@@ -230,6 +234,7 @@ export default function CaptureBar({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={isLoading || busyRecording || !value.trim()}
+            aria-label="Send message"
             className="inline-flex min-w-28 items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-indigo-300"
           >
             {isLoading ? <Spinner /> : <span>Send</span>}

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { completeInboxItem, deleteInboxItem, fetchInboxItems } from "../lib/api";
-import type { InboxItem } from "../lib/types";
+import type { InboxItem, PriorityFilter } from "../lib/types";
 
 const REFRESH_INTERVAL_MS = 30_000;
 
-export function useInbox(search = "") {
+export function useInbox(search = "", priority?: PriorityFilter) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +13,9 @@ export function useInbox(search = "") {
     try {
       setError(null);
       setLoading(true);
-      const response = await fetchInboxItems(search);
+      const response = await fetchInboxItems(search, {
+        tag: priority ? `priority:${priority}` : undefined,
+      });
       setItems(response.items);
     } catch (caughtError) {
       const message =
@@ -22,7 +24,7 @@ export function useInbox(search = "") {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [priority, search]);
 
   const deleteItem = useCallback(
     async (id: string) => {
