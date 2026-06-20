@@ -1,0 +1,84 @@
+import { useEffect, useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { fetchInboxItems } from "../lib/api";
+
+const NAV_ITEMS = [
+  { to: "/", label: "Inbox", icon: "📥" },
+  { to: "/schedule", label: "Schedule", icon: "📅" },
+  { to: "/search", label: "Search", icon: "🔍" },
+] as const;
+
+function navClassName(isActive: boolean) {
+  return `flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition ${
+    isActive
+      ? "bg-indigo-600 text-white shadow-sm"
+      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+  }`;
+}
+
+export default function Sidebar() {
+  const location = useLocation();
+  const [inboxCount, setInboxCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCount = async () => {
+      try {
+        const items = await fetchInboxItems();
+        if (isMounted) {
+          setInboxCount(items.length);
+        }
+      } catch {
+        if (isMounted) {
+          setInboxCount(0);
+        }
+      }
+    };
+
+    void loadCount();
+    const intervalId = window.setInterval(() => {
+      void loadCount();
+    }, 30_000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [location.pathname]);
+
+  return (
+    <aside className="hidden w-72 shrink-0 border-r border-gray-200 bg-white px-5 py-6 lg:flex lg:flex-col">
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-100 text-2xl">
+          🧠
+        </div>
+        <div>
+          <p className="text-lg font-semibold text-gray-900">LipCoding</p>
+          <p className="text-sm text-gray-500">Personal productivity assistant</p>
+        </div>
+      </div>
+
+      <nav className="space-y-2">
+        {NAV_ITEMS.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            className={({ isActive }) => navClassName(isActive)}
+          >
+            <span className="flex items-center gap-3">
+              <span aria-hidden="true">{item.icon}</span>
+              {item.label}
+            </span>
+            {item.label === "Inbox" ? (
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">
+                {inboxCount}
+              </span>
+            ) : null}
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
+  );
+}

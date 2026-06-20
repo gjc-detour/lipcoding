@@ -6,6 +6,12 @@ import { fileURLToPath } from "url";
 import { copilotRouter } from "./routes/copilot.js";
 import { healthRouter } from "./routes/health.js";
 import { chatRouter } from "./routes/chat.js";
+import { inboxRouter } from "./routes/inbox.js";
+import { eventsRouter } from "./routes/events.js";
+import { transcribeRouter } from "./routes/transcribe.js";
+import { extractRouter } from "./routes/extract.js";
+import { logger } from "./lib/logger.js";
+import { requestLoggerMiddleware } from "./middleware/requestLogger.js";
 
 dotenv.config();
 
@@ -13,12 +19,17 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
 
 // API routes
 app.use("/api/health", healthRouter);
-app.use("/api/copilot", copilotRouter);
+app.use("/api/copilot", express.raw({ type: "*/*" }), copilotRouter);
+app.use(express.json());
+app.use(requestLoggerMiddleware);
 app.use("/api/chat", chatRouter);
+app.use("/api/inbox", inboxRouter);
+app.use("/api/events", eventsRouter);
+app.use("/api/transcribe", transcribeRouter);
+app.use("/api/extract", extractRouter);
 
 // Serve static frontend in production
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +40,10 @@ app.get("*", (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info("Server started", {
+    port: PORT,
+    env: process.env.NODE_ENV ?? "development",
+  });
 });
 
 export { app };

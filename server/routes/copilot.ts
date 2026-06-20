@@ -1,62 +1,134 @@
-import { Router, Request, Response } from "express";
+import { Router, type Request, type Response } from "express";
 import {
-  verifyRequestByKeyId,
   createAckEvent,
+  createConfirmationEvent,
   createDoneEvent,
-  createTextEvent,
   createErrorsEvent,
-  getUserMessage,
+  createReferencesEvent,
+  createTextEvent,
   getUserConfirmation,
-  prompt as createPrompt,
+  parseRequestBody,
+  verifyAndParseRequest,
 } from "@copilot-extensions/preview-sdk";
 import { processWithAgent } from "../agents/productivity-agent.js";
+import { logger } from "../lib/logger.js";
 
 export const copilotRouter = Router();
 
+function getRawBody(req: Request): string {
+  if (typeof req.body === "string") {
+    return req.body;
+  }
+
+  if (Buffer.isBuffer(req.body)) {
+    return req.body.toString("utf8");
+  }
+
+  return "";
+}
+
+function extractUserId(
+  messages: Array<{ role: string; content: string; name?: string }>
+): string | undefined {
+  const sessionMessage = messages.find((message) => message.name === "_session");
+  if (!sessionMessage) {
+    return undefined;
+  }
+
+  const match = sessionMessage.content.match(/Current User's Login:\s*([^\s]+)/i);
+  return match?.[1];
+}
+
 copilotRouter.post("/", async (req: Request, res: Response) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
   try {
-    const tokenForUser = req.get("X-GitHub-Token") ?? "";
+    const token = req.get("X-GitHub-Token") ?? "";
+    const signature = req.get("github-public-key-signature");
+    const keyId = req.get("github-public-key-identifier");
+    const rawBody = getRawBody(req);
 
-    // Extract user message from the Copilot request payload
-    const userMessage = getUserMessage(req.body);
-
-    // Check for user confirmation responses
-    const confirmation = getUserConfirmation(req.body);
-
-    // Set SSE headers for streaming response
-    res.set({
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
-
-    // Send acknowledgment
-    res.write(createAckEvent());
-
-    // Process with our productivity agent
-    const result = await processWithAgent({
-      message: userMessage,
-      confirmation,
-      token: tokenForUser,
-    });
-
-    // Stream the response
-    res.write(createTextEvent(result.response));
-
-    // If the agent wants confirmation for a dangerous action
-    if (result.confirmationRequest) {
+    if (!rawBody) {
+      res.status(400);
       res.write(
-        createTextEvent(
-          `\n\n⚠️ ${result.confirmationRequest.message}`
-        )
+        createErrorsEvent([
+          {
+            type: "agent",
+            message: "Request body is empty.",
+            code: "EMPTY_BODY",
+            identifier: "productivity-agent",
+          },
+        ])
       );
+      res.write(createDoneEvent());
+      res.end();
+      return;
     }
 
+    const parsedRequest =
+      signature && keyId
+        ? await verifyAndParseRequest(rawBody, signature, keyId, { token })
+        : (() => {
+            logger.warn("Copilot request verification skipped", {
+              reason: "signature headers missing",
+            });
+            return {
+              isValidRequest: true,
+              payload: parseRequestBody(rawBody),
+            };
+          })();
+
+    if (!parsedRequest.isValidRequest) {
+      res.status(401);
+      res.write(
+        createErrorsEvent([
+          {
+            type: "agent",
+            message: "Request could not be verified.",
+            code: "INVALID_SIGNATURE",
+            identifier: "productivity-agent",
+          },
+        ])
+      );
+      res.write(createDoneEvent());
+      res.end();
+      return;
+    }
+
+    const { payload } = parsedRequest;
+    const userId = extractUserId(payload.messages);
+    const confirmation = getUserConfirmation(payload) ?? null;
+
+    res.write(createAckEvent());
+
+    const result = await processWithAgent({
+      messages: payload.messages,
+      token,
+      userId,
+      confirmation,
+    });
+
+    if (result.confirmationRequest) {
+      res.write(createConfirmationEvent(result.confirmationRequest));
+    }
+
+    if (result.references?.length) {
+      res.write(createReferencesEvent(result.references));
+    }
+
+    res.write(createTextEvent(result.response));
     res.write(createDoneEvent());
     res.end();
-  } catch (error) {
-    console.error("Copilot endpoint error:", error);
+  } catch (error: unknown) {
+    logger.error("Copilot endpoint error", {
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.status(500);
     res.write(
       createErrorsEvent([
         {

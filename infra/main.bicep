@@ -19,6 +19,9 @@ param azureOpenAiEndpoint string = ''
 @description('Azure OpenAI Deployment name')
 param azureOpenAiDeployment string = 'gpt-4o'
 
+@description('Whisper deployment name for speech-to-text')
+param whisperDeploymentName string = 'whisper'
+
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -49,6 +52,18 @@ module containerRegistry './modules/container-registry.bicep' = {
   }
 }
 
+module openai './modules/openai.bicep' = {
+  name: 'openai'
+  scope: rg
+  params: {
+    name: '${abbrs.cognitiveServicesAccounts}${resourceToken}'
+    location: location
+    tags: tags
+    whisperDeploymentName: whisperDeploymentName
+    chatDeploymentName: azureOpenAiDeployment
+  }
+}
+
 module web './modules/container-app.bicep' = {
   name: 'web'
   scope: rg
@@ -59,9 +74,10 @@ module web './modules/container-app.bicep' = {
     containerAppsEnvironmentName: containerAppsEnv.outputs.name
     containerRegistryName: containerRegistry.outputs.name
     env: [
-      { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
+      { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint != '' ? azureOpenAiEndpoint : openai.outputs.endpoint }
       { name: 'AZURE_OPENAI_API_KEY', secretRef: 'azure-openai-key' }
       { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
+      { name: 'AZURE_OPENAI_WHISPER_DEPLOYMENT', value: whisperDeploymentName }
       { name: 'PORT', value: '3001' }
     ]
     secrets: [

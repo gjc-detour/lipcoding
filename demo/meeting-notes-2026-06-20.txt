@@ -1,0 +1,32 @@
+# Q3 Product Roadmap — Meeting Notes
+Date: June 20, 2026
+Attendees: Alex Kim, Sarah Park, James Lee
+
+## Key Decisions
+
+1. **Feature Launch Schedule**
+   - User dashboard redesign: complete by July 15
+   - Mobile app beta launch: targeting August 1
+   - AI recommendations feature: end of August
+
+2. **Tech Debt**
+   - Legacy API migration: must finish by end of July
+   - Test coverage to 80%: goal for next sprint
+
+3. **Team Schedule**
+   - Next Monday 10am: Full team sprint planning meeting
+   - Friday June 30: Q2 results presentation (exec attendance)
+   - July 5: New intern onboarding begins
+
+## Action Items
+
+- [ ] Alex: Draft dashboard wireframes (due June 25)
+- [ ] Sarah: Write mobile QA test plan (due June 27)
+- [ ] James: Legacy API dependency analysis report (due June 28)
+- [ ] Everyone: Update sprint backlog before Monday's meeting
+
+## Notes
+
+Customer feedback indicates load time improvements are the most urgent issue.
+Performance profiling will be added to the next sprint.
+Budget approval for cloud infrastructure upgrade is still pending — follow up with finance by EOW.
