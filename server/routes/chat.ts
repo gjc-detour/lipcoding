@@ -20,7 +20,6 @@ const chatMessageSchema = z.object({
 const chatRequestSchema = z.object({
   message: z.string().min(1),
   messages: z.array(chatMessageSchema).optional(),
-  userId: z.string().optional(),
 });
 
 function buildConversation(
@@ -47,10 +46,11 @@ chatRouter.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const { message, messages, userId } = parsed.data;
-    const effectiveUserId = userId?.trim() || "default";
+    const { message, messages } = parsed.data;
+    const effectiveUserId = req.userId;
     const conversation = buildConversation(message, messages);
-    const previousItemIds = new Set(getInboxItems(effectiveUserId).map((item) => item.id));
+    const previousItems = await getInboxItems(effectiveUserId);
+    const previousItemIds = new Set(previousItems.map((item) => item.id));
 
     const input: CopilotSDKInput = {
       message,
@@ -80,7 +80,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
       result = await processWithAzureFallback({ message, messages: conversation, userId: effectiveUserId });
     }
 
-    const items = getInboxItems(effectiveUserId).filter(
+    const items = (await getInboxItems(effectiveUserId)).filter(
       (item) => !previousItemIds.has(item.id)
     );
 

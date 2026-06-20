@@ -1,7 +1,24 @@
 import { randomUUID } from "crypto";
 import { db } from "../db.js";
+import {
+  cosmosCloseScheduledEvent,
+  cosmosCreateInboxItem,
+  cosmosCreateScheduledEvent,
+  cosmosDeleteInboxItem,
+  cosmosGetInboxItem,
+  cosmosGetInboxItems,
+  cosmosGetScheduledEvents,
+  cosmosGetUpcomingEvents,
+  cosmosMarkEventNotified,
+  cosmosUpdateInboxItem,
+} from "../lib/cosmos.js";
 import { logger } from "../lib/logger.js";
 import { getContext } from "../lib/requestContext.js";
+
+const DEFAULT_USER_ID = "default";
+const useCosmosDB =
+  process.env.STORAGE_BACKEND === "cosmos" &&
+  !!(process.env.COSMOS_CONNECTION_STRING || process.env.COSMOS_ENDPOINT);
 
 export interface InboxItem {
   id: string;
@@ -13,6 +30,13 @@ export interface InboxItem {
   due_date?: string;
   scheduled: boolean;
   created_at: string;
+}
+
+export interface InboxItemFilters {
+  type?: InboxItem["type"];
+  tag?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface ScheduledEvent {
@@ -72,6 +96,10 @@ interface ScheduledEventRecord {
   created_at: string;
 }
 
+function resolveUserId(userId?: string): string {
+  return userId?.trim() ? userId : DEFAULT_USER_ID;
+}
+
 function parseTags(tags: string): string[] {
   const parsed: unknown = JSON.parse(tags);
   return Array.isArray(parsed) && parsed.every((tag) => typeof tag === "string")
@@ -106,23 +134,26 @@ function mapScheduledEvent(row: ScheduledEventRow): ScheduledEvent {
   };
 }
 
-function getInboxItemById(id: string): InboxItem | null {
+function sqliteGetInboxItemById(id: string, userId = DEFAULT_USER_ID): InboxItem | null {
   const row = db
-    .prepare("SELECT * FROM inbox_items WHERE id = ?")
-    .get(id) as InboxItemRow | undefined;
+    .prepare("SELECT * FROM inbox_items WHERE id = ? AND user_id = ?")
+    .get(id, resolveUserId(userId)) as InboxItemRow | undefined;
 
   return row ? mapInboxItem(row) : null;
 }
 
-function getScheduledEventById(id: string): ScheduledEvent | null {
+function sqliteGetScheduledEventById(
+  id: string,
+  userId = DEFAULT_USER_ID
+): ScheduledEvent | null {
   const row = db
-    .prepare("SELECT * FROM scheduled_events WHERE id = ?")
-    .get(id) as ScheduledEventRow | undefined;
+    .prepare("SELECT * FROM scheduled_events WHERE id = ? AND user_id = ?")
+    .get(id, resolveUserId(userId)) as ScheduledEventRow | undefined;
 
   return row ? mapScheduledEvent(row) : null;
 }
 
-export function createInboxItem(
+function sqliteCreateInboxItem(
   item: Omit<InboxItem, "id" | "created_at">
 ): InboxItem {
   const { correlationId, userId: contextUserId } = getContext();
@@ -131,7 +162,7 @@ export function createInboxItem(
     const createdAt = new Date().toISOString();
     const createdItem: InboxItemRecord = {
       id: randomUUID(),
-      user_id: item.user_id || "default",
+      user_id: resolveUserId(item.user_id),
       type: item.type,
       raw: item.raw,
       summary: item.summary,
@@ -169,49 +200,81 @@ export function createInboxItem(
   }
 }
 
-export function getInboxItems(userId = "default", search?: string): InboxItem[] {
+function sqliteGetInboxItems(
+  userId = DEFAULT_USER_ID,
+  search?: string,
+  filters: InboxItemFilters = {}
+): InboxItem[] {
   const { correlationId, userId: contextUserId } = getContext();
+  const effectiveUserId = resolveUserId(userId);
   const searchTerm = search?.trim();
+  const tag = filters.tag?.trim();
+  const from = filters.from?.trim();
+  const to = filters.to?.trim();
+  const whereClauses = ["user_id = ?"];
+  const values: string[] = [effectiveUserId];
+
+  if (searchTerm) {
+    whereClauses.push(`
+      (
+        raw LIKE ?
+        OR summary LIKE ?
+        OR tags LIKE ?
+      )
+    `);
+    values.push(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
+  }
+
+  if (filters.type) {
+    whereClauses.push("type = ?");
+    values.push(filters.type);
+  }
+
+  if (tag) {
+    whereClauses.push(`
+      EXISTS (
+        SELECT 1
+        FROM json_each(inbox_items.tags)
+        WHERE LOWER(json_each.value) = LOWER(?)
+      )
+    `);
+    values.push(tag);
+  }
+
+  if (from) {
+    whereClauses.push("datetime(created_at) >= datetime(?)");
+    values.push(from);
+  }
+
+  if (to) {
+    whereClauses.push("datetime(created_at) <= datetime(?)");
+    values.push(to);
+  }
 
   try {
-    const rows = searchTerm
-      ? (db
-          .prepare(
-            `
-              SELECT *
-              FROM inbox_items
-              WHERE user_id = ?
-                AND (
-                  raw LIKE ?
-                  OR summary LIKE ?
-                  OR tags LIKE ?
-                )
-              ORDER BY datetime(created_at) DESC
-            `
-          )
-          .all(
-            userId,
-            `%${searchTerm}%`,
-            `%${searchTerm}%`,
-            `%${searchTerm}%`
-          ) as InboxItemRow[])
-      : (db
-          .prepare(
-            `
-              SELECT *
-              FROM inbox_items
-              WHERE user_id = ?
-              ORDER BY datetime(created_at) DESC
-            `
-          )
-          .all(userId) as InboxItemRow[]);
+    const rows = db
+      .prepare(
+        `
+          SELECT *
+          FROM inbox_items
+          WHERE ${whereClauses.join("\n            AND ")}
+          ORDER BY datetime(created_at) DESC
+        `
+      )
+      .all(...values) as InboxItemRow[];
 
     const results = rows.map(mapInboxItem);
 
     logger.info("getInboxItems", {
       correlationId,
-      userId: userId || contextUserId,
+      userId: effectiveUserId || contextUserId,
       search: searchTerm,
+      filters: {
+        type: filters.type,
+        tag,
+        from,
+        to,
+      },
       count: results.length,
     });
 
@@ -219,22 +282,26 @@ export function getInboxItems(userId = "default", search?: string): InboxItem[] 
   } catch (error: unknown) {
     logger.error("getInboxItems failed", {
       correlationId,
-      userId: userId || contextUserId,
+      userId: effectiveUserId || contextUserId,
       search: searchTerm,
+      filters: {
+        type: filters.type,
+        tag,
+        from,
+        to,
+      },
       error: error instanceof Error ? error.message : "Unknown error",
     });
     throw error;
   }
 }
 
-export function getInboxItem(id: string): InboxItem | null {
-  return getInboxItemById(id);
-}
-
-export function updateInboxItem(
+function sqliteUpdateInboxItem(
   id: string,
-  patch: Partial<InboxItem>
+  patch: Partial<InboxItem>,
+  userId = DEFAULT_USER_ID
 ): InboxItem | null {
+  const effectiveUserId = resolveUserId(userId);
   const assignments: string[] = [];
   const values: unknown[] = [];
 
@@ -274,39 +341,48 @@ export function updateInboxItem(
   }
 
   if (assignments.length === 0) {
-    return getInboxItemById(id);
+    return sqliteGetInboxItemById(id, effectiveUserId);
   }
 
   values.push(id);
+  values.push(effectiveUserId);
 
   const result = db
-    .prepare(`UPDATE inbox_items SET ${assignments.join(", ")} WHERE id = ?`)
+    .prepare(
+      `UPDATE inbox_items SET ${assignments.join(", ")} WHERE id = ? AND user_id = ?`
+    )
     .run(...values);
 
   if (result.changes === 0) {
     return null;
   }
 
-  return getInboxItemById(id);
+  return sqliteGetInboxItemById(id, effectiveUserId);
 }
 
-export function deleteInboxItem(id: string): boolean {
-  const doDelete = db.transaction((itemId: string) => {
+function sqliteDeleteInboxItem(id: string, userId = DEFAULT_USER_ID): boolean {
+  const effectiveUserId = resolveUserId(userId);
+  const doDelete = db.transaction((itemId: string, ownerId: string) => {
     // Remove child scheduled events first to satisfy the foreign key constraint
-    db.prepare("DELETE FROM scheduled_events WHERE item_id = ?").run(itemId);
-    const result = db.prepare("DELETE FROM inbox_items WHERE id = ?").run(itemId);
+    db.prepare("DELETE FROM scheduled_events WHERE item_id = ? AND user_id = ?").run(
+      itemId,
+      ownerId
+    );
+    const result = db
+      .prepare("DELETE FROM inbox_items WHERE id = ? AND user_id = ?")
+      .run(itemId, ownerId);
     return result.changes > 0;
   });
-  return doDelete(id);
+  return doDelete(id, effectiveUserId);
 }
 
-export function createScheduledEvent(
+function sqliteCreateScheduledEvent(
   event: Omit<ScheduledEvent, "id" | "created_at">
 ): ScheduledEvent {
   const createdAt = new Date().toISOString();
   const createdEvent: ScheduledEventRecord = {
     id: randomUUID(),
-    user_id: event.user_id || "default",
+    user_id: resolveUserId(event.user_id),
     item_id: event.item_id ?? null,
     title: event.title,
     description: event.description ?? null,
@@ -327,8 +403,9 @@ export function createScheduledEvent(
     ).run(record);
 
     if (record.item_id) {
-      db.prepare("UPDATE inbox_items SET scheduled = 1 WHERE id = ?").run(
-        record.item_id
+      db.prepare("UPDATE inbox_items SET scheduled = 1 WHERE id = ? AND user_id = ?").run(
+        record.item_id,
+        record.user_id
       );
     }
   })(createdEvent);
@@ -336,7 +413,7 @@ export function createScheduledEvent(
   return mapScheduledEvent(createdEvent);
 }
 
-export function getScheduledEvents(userId = "default"): ScheduledEvent[] {
+function sqliteGetScheduledEvents(userId = DEFAULT_USER_ID): ScheduledEvent[] {
   const rows = db
     .prepare(
       `
@@ -346,13 +423,150 @@ export function getScheduledEvents(userId = "default"): ScheduledEvent[] {
         ORDER BY datetime(due_at) ASC
       `
     )
-    .all(userId) as ScheduledEventRow[];
+    .all(resolveUserId(userId)) as ScheduledEventRow[];
 
   return rows.map(mapScheduledEvent);
 }
 
-export function markEventNotified(id: string): void {
-  db.prepare("UPDATE scheduled_events SET notified = 1 WHERE id = ?").run(id);
+function sqliteMarkEventNotified(id: string, userId = DEFAULT_USER_ID): void {
+  db.prepare("UPDATE scheduled_events SET notified = 1 WHERE id = ? AND user_id = ?").run(
+    id,
+    resolveUserId(userId)
+  );
 }
 
-export { getScheduledEventById };
+function sqliteCloseScheduledEvent(id: string, userId = DEFAULT_USER_ID): boolean {
+  const result = db
+    .prepare("DELETE FROM scheduled_events WHERE id = ? AND user_id = ?")
+    .run(id, resolveUserId(userId));
+  return result.changes > 0;
+}
+
+function sqliteGetUpcomingEvents(
+  userId = DEFAULT_USER_ID,
+  limitHours = 168
+): ScheduledEvent[] {
+  const now = new Date().toISOString();
+  const future = new Date(Date.now() + limitHours * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare(
+    "SELECT * FROM scheduled_events WHERE user_id = ? AND due_at >= ? AND due_at <= ? AND notified = 0 ORDER BY datetime(due_at) ASC LIMIT 10"
+  ).all(resolveUserId(userId), now, future) as ScheduledEventRow[];
+  return rows.map(mapScheduledEvent);
+}
+
+export async function createInboxItem(
+  item: Omit<InboxItem, "id" | "created_at">
+): Promise<InboxItem> {
+  if (useCosmosDB) {
+    return cosmosCreateInboxItem(item);
+  }
+
+  return Promise.resolve(sqliteCreateInboxItem(item));
+}
+
+export async function getInboxItems(
+  userId = DEFAULT_USER_ID,
+  search?: string,
+  filters: InboxItemFilters = {}
+): Promise<InboxItem[]> {
+  if (useCosmosDB) {
+    return cosmosGetInboxItems(userId, search, filters);
+  }
+
+  return Promise.resolve(sqliteGetInboxItems(userId, search, filters));
+}
+
+export async function getInboxItem(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<InboxItem | null> {
+  if (useCosmosDB) {
+    return cosmosGetInboxItem(id, userId);
+  }
+
+  return Promise.resolve(sqliteGetInboxItemById(id, userId));
+}
+
+export async function updateInboxItem(
+  id: string,
+  patch: Partial<InboxItem>,
+  userId = DEFAULT_USER_ID
+): Promise<InboxItem | null> {
+  if (useCosmosDB) {
+    return cosmosUpdateInboxItem(id, userId, patch);
+  }
+
+  return Promise.resolve(sqliteUpdateInboxItem(id, patch, userId));
+}
+
+export async function deleteInboxItem(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<boolean> {
+  if (useCosmosDB) {
+    return cosmosDeleteInboxItem(id, userId);
+  }
+
+  return Promise.resolve(sqliteDeleteInboxItem(id, userId));
+}
+
+export async function createScheduledEvent(
+  event: Omit<ScheduledEvent, "id" | "created_at">
+): Promise<ScheduledEvent> {
+  if (useCosmosDB) {
+    return cosmosCreateScheduledEvent(event);
+  }
+
+  return Promise.resolve(sqliteCreateScheduledEvent(event));
+}
+
+export async function getScheduledEvents(
+  userId = DEFAULT_USER_ID
+): Promise<ScheduledEvent[]> {
+  if (useCosmosDB) {
+    return cosmosGetScheduledEvents(userId);
+  }
+
+  return Promise.resolve(sqliteGetScheduledEvents(userId));
+}
+
+export async function getUpcomingEvents(
+  userId = DEFAULT_USER_ID,
+  limitHours = 168
+): Promise<ScheduledEvent[]> {
+  if (useCosmosDB) {
+    return cosmosGetUpcomingEvents(userId, limitHours);
+  }
+
+  return Promise.resolve(sqliteGetUpcomingEvents(userId, limitHours));
+}
+
+export async function markEventNotified(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<void> {
+  if (useCosmosDB) {
+    await cosmosMarkEventNotified(id, userId);
+    return;
+  }
+
+  return Promise.resolve(sqliteMarkEventNotified(id, userId));
+}
+
+export async function closeScheduledEvent(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<boolean> {
+  if (useCosmosDB) {
+    return cosmosCloseScheduledEvent(id, userId);
+  }
+
+  return Promise.resolve(sqliteCloseScheduledEvent(id, userId));
+}
+
+export async function getScheduledEventById(
+  id: string,
+  userId = DEFAULT_USER_ID
+): Promise<ScheduledEvent | null> {
+  return Promise.resolve(sqliteGetScheduledEventById(id, userId));
+}

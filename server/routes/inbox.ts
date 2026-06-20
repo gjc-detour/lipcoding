@@ -10,8 +10,21 @@ import {
 export const inboxRouter = Router();
 
 const inboxListQuerySchema = z.object({
-  userId: z.string().min(1).optional(),
   search: z.string().min(1).optional(),
+  type: z.enum(["note", "task", "event", "file"]).optional(),
+  tag: z.string().min(1).optional(),
+  from: z
+    .string()
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: "from must be a valid ISO8601 datetime",
+    })
+    .optional(),
+  to: z
+    .string()
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: "to must be a valid ISO8601 datetime",
+    })
+    .optional(),
 });
 
 const inboxParamsSchema = z.object({
@@ -31,10 +44,13 @@ const createInboxItemSchema = z.object({
     .optional(),
 });
 
-inboxRouter.get("/", (req, res) => {
+inboxRouter.get("/", async (req, res) => {
   const parsed = inboxListQuerySchema.safeParse({
-    userId: typeof req.query.userId === "string" ? req.query.userId : undefined,
     search: typeof req.query.search === "string" ? req.query.search : undefined,
+    type: typeof req.query.type === "string" ? req.query.type : undefined,
+    tag: typeof req.query.tag === "string" ? req.query.tag : undefined,
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
   });
 
   if (!parsed.success) {
@@ -43,15 +59,20 @@ inboxRouter.get("/", (req, res) => {
   }
 
   try {
-    const items = getInboxItems(parsed.data.userId, parsed.data.search);
-    res.json(items);
+    const items = await getInboxItems(req.userId, parsed.data.search, {
+      type: parsed.data.type,
+      tag: parsed.data.tag,
+      from: parsed.data.from,
+      to: parsed.data.to,
+    });
+    res.json({ items, total: items.length });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to load inbox items";
     res.status(500).json({ error: message });
   }
 });
 
-inboxRouter.post("/", (req, res) => {
+inboxRouter.post("/", async (req, res) => {
   const parsed = createInboxItemSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -60,8 +81,8 @@ inboxRouter.post("/", (req, res) => {
   }
 
   try {
-    const item = createInboxItem({
-      user_id: "default",
+    const item = await createInboxItem({
+      user_id: req.userId,
       type: parsed.data.type,
       raw: parsed.data.raw,
       summary: parsed.data.summary,
@@ -77,7 +98,7 @@ inboxRouter.post("/", (req, res) => {
   }
 });
 
-inboxRouter.get("/:id", (req, res) => {
+inboxRouter.get("/:id", async (req, res) => {
   const parsed = inboxParamsSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -86,7 +107,7 @@ inboxRouter.get("/:id", (req, res) => {
   }
 
   try {
-    const item = getInboxItem(parsed.data.id);
+    const item = await getInboxItem(parsed.data.id, req.userId);
 
     if (!item) {
       res.status(404).json({ error: "Inbox item not found" });
@@ -100,7 +121,7 @@ inboxRouter.get("/:id", (req, res) => {
   }
 });
 
-inboxRouter.delete("/:id", (req, res) => {
+inboxRouter.delete("/:id", async (req, res) => {
   const parsed = inboxParamsSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -109,7 +130,7 @@ inboxRouter.delete("/:id", (req, res) => {
   }
 
   try {
-    const deleted = deleteInboxItem(parsed.data.id);
+    const deleted = await deleteInboxItem(parsed.data.id, req.userId);
 
     if (!deleted) {
       res.status(404).json({ error: "Inbox item not found" });

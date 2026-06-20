@@ -4,7 +4,7 @@ import type { InboxItem as InboxItemModel } from "../lib/types";
 
 interface InboxItemProps {
   item: InboxItemModel;
-  onDelete: (id: string) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
 }
 
 const TYPE_STYLES: Record<InboxItemModel["type"], string> = {
@@ -19,6 +19,10 @@ export default function InboxItem({ item, onDelete }: InboxItemProps) {
   const isPastDue = item.due_date ? isPastDate(item.due_date) : false;
 
   const handleDelete = async () => {
+    if (!onDelete) {
+      return;
+    }
+
     const confirmed = window.confirm("Delete this inbox item?");
     if (!confirmed) {
       return;
@@ -79,17 +83,19 @@ export default function InboxItem({ item, onDelete }: InboxItemProps) {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            void handleDelete();
-          }}
-          className="rounded-full p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
-          aria-label="Delete inbox item"
-          title="Delete"
-        >
-          🗑️
-        </button>
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={() => {
+              void handleDelete();
+            }}
+            className="rounded-full p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+            aria-label="Delete inbox item"
+            title="Delete"
+          >
+            🗑️
+          </button>
+        ) : null}
       </div>
     </article>
   );

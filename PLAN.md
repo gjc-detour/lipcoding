@@ -8,6 +8,171 @@ users drop anything (text, voice, PDF) → the Copilot agent processes it → su
 
 ## Current Status (as of 2026-06-20)
 
+### ✅ Phase 1 — Storage Layer — DONE
+- SQLite database with `inbox_items` + `scheduled_events` tables
+- Full CRUD REST API: `GET/POST/DELETE /api/inbox`, `GET/POST /api/events`
+- Cascade delete (FK constraint fix), Zod validation on all inputs
+
+### ✅ Phase 2 — Copilot Agent Tool Calling — DONE
+- **`/api/copilot`** — Copilot Chat extension via `@copilot-extensions/preview-sdk` v5
+  - `verifyAndParseRequest`, SSE streaming, confirmation events, user identity from `_session`
+- **`/api/chat`** — Web UI path via `@github/copilot-sdk` BYOK (Azure AI Foundry) with graceful fallback to direct Azure OpenAI
+- 4 tools: `save_item`, `schedule_event`, `search_items`, `translate_text`
+- Multi-turn conversation context, up to 3 tool-call rounds
+
+### ✅ Phase 3 — Multi-modal Input — DONE
+- **Text** — direct textarea input → agent
+- **Voice** — `MediaRecorder` → `POST /api/transcribe` → Azure Whisper (plain `OpenAI` client, Foundry-compatible)
+- **PDF** — `POST /api/extract` → Azure Document Intelligence (primary) or `pdf-parse` v2 ESM (fallback)
+- **Text files** — `.txt`, `.md` read directly in browser
+
+### ✅ Phase 4 — Frontend UI — DONE
+- Inbox page: AI chat panel + captured items list, side-by-side
+- Schedule page: events sorted by due date with countdown
+- CaptureBar: bilingual placeholder (한국어/English), voice button, file upload
+- Sidebar navigation with item count badge
+- 16 Playwright E2E tests passing
+
+### ✅ Phase 5 — Azure AI & Observability — DONE
+- Model: switched from `Kimi-K2.6` → **`gpt-4o`** (reliable tool calling)
+- Whisper: fixed to use plain `OpenAI` client (Foundry endpoint compatibility)
+- JSON structured logging, correlation IDs, request timing on all routes
+- `infra/modules/openai.bicep` — provisions Azure OpenAI + Whisper + GPT deployments
+- `infra/abbreviations.json` — fixed `cognitiveServicesAccounts` key
+- Deployed to Azure Container Apps: `koreacentral`
+
+### ✅ Phase 6 — Bilingual (Korean/English) — DONE
+- System prompt handles Korean date formats (`금요일`, `다음 주 월요일`)
+- Responds in the language of the input
+- Whisper auto-detects language
+- Demo files: `demo/회의록_2026-06-20.txt`, `demo/sample-korean-brief.pdf`
+
+---
+
+## ⏳ Remaining Phases
+
+### Phase 7 — Persistent Memory & Context-Aware Agent — TODO 🔴 HIGH
+> Agent makes decisions based on existing history — avoids duplicate saves, updates existing items
+
+- **Context injection**: Before each agent call, load recent 10 inbox items + upcoming scheduled events and inject as context into the system prompt
+- **New tool `update_item`**: Modify an existing item's summary, tags, or due_date (agent calls this instead of saving a duplicate)
+- **New tool `close_event`**: Mark a scheduled event as cancelled/done (user says "cancel my Friday meeting")
+- **New tool `complete_item`**: Mark a task item as completed
+- **Duplicate detection**: Agent checks context before calling `save_item` — if similar item exists, calls `update_item` instead
+- **REST endpoints**: `PATCH /api/inbox/:id`, `DELETE /api/events/:id`
+
+### Phase 8 — Enhanced Search — TODO 🟡
+> Search should surface relevant history to inform agent and UI
+
+- Full-text search across `raw` + `summary` + `tags` fields (already partial)
+- Search by type filter (`?type=task`)
+- Search by date range (`?from=&to=`)
+- **Agent-side search**: `search_items` tool already exists — make agent proactively search before saving to avoid duplicates
+- Frontend search bar on `/search` route (already scaffolded in `InboxPage`)
+
+### Phase 9 — Azure Cloud Storage — TODO 🟢
+> Replaces SQLite with proper Azure services — big boost to Azure score
+
+- **Azure Cosmos DB** — `inbox_items` + `scheduled_events`, partition by `userId`
+- **Azure Blob Storage** — raw uploaded files (PDFs, audio recordings)
+- `STORAGE_BACKEND=cosmos|sqlite` env switch in `server/services/storage.ts`
+- Bicep: Cosmos DB account + containers + Blob storage account
+- Researching: `@azure/cosmos`, `@azure/storage-blob`
+
+### Phase 8 — Scheduled Notifications (Serverless) — TODO 🟡
+> Cron job runs as a SEPARATE Azure Function, not inside the web server
+
+- **Azure Functions** (timer trigger, every 1 min) — separate from Express web server
+- Reads `scheduled_events` from shared Cosmos DB
+- Sends notifications via:
+  - **In-app**: Azure Web PubSub → browser SSE/WebSocket
+  - **Email**: Azure Communication Services (ACS)
+- Marks events as `notified = true` after sending
+- Deployed via same `azd` pipeline from `functions/` folder
+- Researching: `@azure/functions`, `@azure/web-pubsub`, `@azure/communication-email`
+
+### Phase 9 — E2E Tests (full suite) — TODO 🟡
+- Playwright: PDF upload → extraction → agent → inbox item appears
+- Playwright: voice recording simulation → transcript → save
+- Supertest: full chat → tool call → item saved flow
+
+---
+
+## Judging Criteria Mapping
+
+| Criterion | Weight | Status | How We Win |
+|---|---|---|---|
+| Copilot SDK | 25% | ✅ | Both SDKs: `preview-sdk` (extension) + `@github/copilot-sdk` BYOK (agent) |
+| Productivity Impact | 18% | ✅ | Text+voice+PDF inbox → AI saves, schedules, searches |
+| Azure AI & Cloud | 18% | 🔄 | GPT-4o + Whisper via Foundry; adding Cosmos DB + Functions |
+| Functionality | 16% | ✅ | Full E2E deployed; 16 Playwright tests passing |
+| UX | 12% | ✅ | Bilingual, streaming, voice, file upload |
+| Responsible AI | 6% | ✅ | Confirmation before scheduling, source attribution |
+| Innovation | 5% | ✅ | Multi-modal + Korean/English + serverless notifications |
+
+---
+
+## Live Deployment
+- **URL**: https://ca-web-3qujsv4wy3voi.gentlebeach-87f2d7cb.koreacentral.azurecontainerapps.io
+- **Region**: Korea Central
+- **Stack**: Azure Container Apps + Azure Container Registry + Log Analytics
+- **Model**: gpt-4o via Azure AI Foundry
+- **Whisper**: available at same endpoint
+
+---
+
+## Architecture
+
+```
+User (Korean/English)
+ │  text / voice (Whisper) / PDF (Document Intelligence → pdf-parse)
+ ▼
+Frontend — React 18 + Vite + Tailwind (port 5173)
+ │  /api/chat       → web UI agent (gpt-4o, tool calling)
+ │  /api/transcribe → voice → Whisper STT
+ │  /api/extract    → PDF → Azure Doc Intelligence / pdf-parse
+ │  /api/inbox      → CRUD for saved items
+ │  /api/events     → scheduled events
+ │  /api/copilot    → GitHub Copilot Chat extension (SSE)
+ ▼
+Express Backend — Node.js 24 + TypeScript (port 3001)
+ │
+ ├── @copilot-extensions/preview-sdk  (Copilot Chat extension)
+ ├── @github/copilot-sdk BYOK         (web UI agent, gpt-4o)
+ ├── openai (Azure Foundry direct)    (fallback + Whisper)
+ ├── @azure/ai-form-recognizer        (Document Intelligence)
+ │
+ ▼
+Storage: SQLite (dev) → Azure Cosmos DB (Phase 7)
+Files:   local         → Azure Blob Storage (Phase 7)
+Cron:    in-server     → Azure Functions timer (Phase 8)
+Notify:                → Azure Web PubSub + ACS Email (Phase 8)
+```
+
+---
+
+## Extension Phases (researching now)
+
+### Extension A — Azure Cosmos DB + Blob Storage
+- `@azure/cosmos` for document storage (per-user partitioning)
+- `@azure/storage-blob` for raw file storage
+- Environment switch: `STORAGE_BACKEND=cosmos|sqlite`
+
+### Extension B — Azure Functions Notifications
+- Separate `functions/` folder in repo
+- Timer trigger: check due events every minute
+- Notification via Azure Web PubSub (in-app) + ACS (email)
+- Shared Cosmos DB connection between web app and Function
+
+
+## Concept
+A personal productivity assistant that acts as a smart inbox:
+users drop anything (text, voice, PDF) → the Copilot agent processes it → summarizes, extracts tasks/events, stores them, schedules reminders, and makes everything searchable/referenceable later.
+
+---
+
+## Current Status (as of 2026-06-20)
+
 ### ✅ Fully Done
 | Phase | What was built |
 |---|---|

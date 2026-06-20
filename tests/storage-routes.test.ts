@@ -5,7 +5,7 @@ import { db } from "../server/db.js";
 import { eventsRouter } from "../server/routes/events.js";
 import { inboxRouter } from "../server/routes/inbox.js";
 
-describe("Storage routes", () => {
+describe.sequential("Storage routes", () => {
   const app = express();
   app.use(express.json());
   app.use("/api/inbox", inboxRouter);
@@ -36,7 +36,8 @@ describe("Storage routes", () => {
     });
 
     expect(listResponse.status).toBe(200);
-    expect(listResponse.body).toHaveLength(1);
+    expect(listResponse.body.total).toBe(1);
+    expect(listResponse.body.items).toHaveLength(1);
 
     const itemId = createResponse.body.id as string;
 
@@ -76,5 +77,54 @@ describe("Storage routes", () => {
       .get(itemResponse.body.id) as { scheduled: number } | undefined;
 
     expect(scheduledValue?.scheduled).toBe(1);
+  });
+
+  it("filters inbox search by type, tag, and created_at range", async () => {
+    const juneTask = await request(app).post("/api/inbox").send({
+      type: "task",
+      raw: "Prepare launch checklist",
+      summary: "Launch checklist",
+      tags: ["launch", "priority"],
+    });
+
+    const juneFile = await request(app).post("/api/inbox").send({
+      type: "file",
+      raw: "Quarterly roadmap attachment",
+      summary: "Roadmap PDF",
+      tags: ["roadmap"],
+    });
+
+    const julyTask = await request(app).post("/api/inbox").send({
+      type: "task",
+      raw: "Prepare July launch plan",
+      summary: "July launch plan",
+      tags: ["launch"],
+    });
+
+    db.prepare("UPDATE inbox_items SET created_at = ? WHERE id = ?").run(
+      "2026-06-05T10:00:00.000Z",
+      juneTask.body.id
+    );
+    db.prepare("UPDATE inbox_items SET created_at = ? WHERE id = ?").run(
+      "2026-06-10T10:00:00.000Z",
+      juneFile.body.id
+    );
+    db.prepare("UPDATE inbox_items SET created_at = ? WHERE id = ?").run(
+      "2026-07-05T10:00:00.000Z",
+      julyTask.body.id
+    );
+
+    const filteredResponse = await request(app).get("/api/inbox").query({
+      search: "launch",
+      type: "task",
+      tag: "launch",
+      from: "2026-06-01T00:00:00.000Z",
+      to: "2026-06-30T23:59:59.999Z",
+    });
+
+    expect(filteredResponse.status).toBe(200);
+    expect(filteredResponse.body.total).toBe(1);
+    expect(filteredResponse.body.items).toHaveLength(1);
+    expect(filteredResponse.body.items[0].id).toBe(juneTask.body.id);
   });
 });

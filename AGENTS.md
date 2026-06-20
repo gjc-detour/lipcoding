@@ -40,16 +40,48 @@ Evaluates how AI is applied in a novel and creative way to enhance productivity,
 
 ---
 
+## Documentation Rules for Agents
+
+**When you make ANY infrastructure or configuration change, you MUST update these files in the same commit:**
+
+| Change type | Files to update |
+|---|---|
+| Add/remove Azure service | `INFRASTRUCTURE.md` → Azure Resources table + env vars table |
+| Add/change env variable | `INFRASTRUCTURE.md` → Environment Variables table + `.env.example` |
+| Add Bicep module | `INFRASTRUCTURE.md` → IaC section |
+| Add new API route | `INFRASTRUCTURE.md` → Architecture diagram + `AGENTS.md` routes list |
+| Add new npm package | `AGENTS.md` → Tech Stack table |
+| Change deployment | `INFRASTRUCTURE.md` → Deployment Pipeline section |
+| Change storage backend | `INFRASTRUCTURE.md` → Storage Backend Switch section |
+| Add feature | `PLAN.md` → Current Status or Remaining Phases |
+
+**Key documentation files:**
+- `INFRASTRUCTURE.md` — Azure resources, env vars, Bicep modules, deployment pipeline
+- `PLAN.md` — Feature phases, judging criteria mapping, what's done/todo
+- `AGENTS.md` (this file) — Tech stack, commands, coding conventions
+
+---
+
 ## Tech Stack
 
-| Layer      | Technology                                   |
-|------------|----------------------------------------------|
-| Frontend   | Vite + React 18 + TypeScript + Tailwind CSS  |
-| Backend    | Express + `@copilot-extensions/preview-sdk`  |
-| AI         | Azure OpenAI (`@azure/openai`) via Foundry   |
-| Testing    | Vitest + Testing Library + Supertest         |
-| Deploy     | Azure Container Apps via `azd` CLI           |
-| CI/CD      | GitHub Actions (`.github/workflows/ci.yml`)  |
+| Layer | Technology |
+|---|---|
+| Frontend | Vite + React 18 + TypeScript + Tailwind CSS |
+| Backend | Express + Node.js 24 + TypeScript (ESM) |
+| AI — Extension | `@copilot-extensions/preview-sdk` (Copilot Chat extension, SSE) |
+| AI — Agent | `@github/copilot-sdk` BYOK + Azure AI Foundry (gpt-4o) |
+| AI — Speech | Azure OpenAI Whisper via plain `OpenAI` client with `baseURL` |
+| AI — Documents | `@azure/ai-form-recognizer` (prebuilt-read) → fallback: `pdf-parse` v2 |
+| Storage (dev) | `better-sqlite3` (SQLite at `data/lipcoding.db`) |
+| Storage (prod) | Azure Cosmos DB NoSQL via `@azure/cosmos` + managed identity |
+| File Storage | Azure Blob Storage via `@azure/storage-blob` |
+| Notifications | `node-cron` + SSE (`/api/notifications`) + `@azure/communication-email` |
+| Auth | Cookie-based with pre-shared tokens (`ALLOWED_USERS` env var) |
+| Testing | Vitest + Testing Library + Supertest + Playwright E2E |
+| Deploy | Azure Container Apps via `azd` CLI |
+| CI/CD | GitHub Actions (`.github/workflows/ci.yml`) |
+
+**Storage backend switch:** `STORAGE_BACKEND=sqlite` (default) or `STORAGE_BACKEND=cosmos`
 
 ## Commands
 

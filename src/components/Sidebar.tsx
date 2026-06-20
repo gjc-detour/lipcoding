@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { fetchInboxItems } from "../lib/api";
 
 const NAV_ITEMS = [
@@ -18,6 +19,7 @@ function navClassName(isActive: boolean) {
 
 export default function Sidebar() {
   const location = useLocation();
+  const { displayName, logout } = useAuth();
   const [inboxCount, setInboxCount] = useState(0);
 
   useEffect(() => {
@@ -25,9 +27,9 @@ export default function Sidebar() {
 
     const loadCount = async () => {
       try {
-        const items = await fetchInboxItems();
+        const response = await fetchInboxItems();
         if (isMounted) {
-          setInboxCount(items.length);
+          setInboxCount(response.total);
         }
       } catch {
         if (isMounted) {
@@ -79,6 +81,19 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      <div className="mt-auto rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p className="text-sm font-medium text-gray-900">{displayName ?? "Signed in"}</p>
+        <button
+          type="button"
+          onClick={() => {
+            void logout();
+          }}
+          className="mt-3 text-sm font-medium text-indigo-600 transition hover:text-indigo-500"
+        >
+          Log out
+        </button>
+      </div>
     </aside>
   );
 }

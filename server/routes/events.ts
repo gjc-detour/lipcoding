@@ -7,9 +7,7 @@ import {
 
 export const eventsRouter = Router();
 
-const eventsListQuerySchema = z.object({
-  userId: z.string().min(1).optional(),
-});
+const eventsListQuerySchema = z.object({});
 
 const createScheduledEventSchema = z.object({
   title: z.string().min(1),
@@ -20,10 +18,8 @@ const createScheduledEventSchema = z.object({
   item_id: z.string().min(1).optional(),
 });
 
-eventsRouter.get("/", (req, res) => {
-  const parsed = eventsListQuerySchema.safeParse({
-    userId: typeof req.query.userId === "string" ? req.query.userId : undefined,
-  });
+eventsRouter.get("/", async (req, res) => {
+  const parsed = eventsListQuerySchema.safeParse({});
 
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid query" });
@@ -31,7 +27,7 @@ eventsRouter.get("/", (req, res) => {
   }
 
   try {
-    const events = getScheduledEvents(parsed.data.userId);
+    const events = await getScheduledEvents(req.userId);
     res.json(events);
   } catch (error: unknown) {
     const message =
@@ -40,7 +36,7 @@ eventsRouter.get("/", (req, res) => {
   }
 });
 
-eventsRouter.post("/", (req, res) => {
+eventsRouter.post("/", async (req, res) => {
   const parsed = createScheduledEventSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -49,8 +45,8 @@ eventsRouter.post("/", (req, res) => {
   }
 
   try {
-    const event = createScheduledEvent({
-      user_id: "default",
+    const event = await createScheduledEvent({
+      user_id: req.userId,
       item_id: parsed.data.item_id,
       title: parsed.data.title,
       description: parsed.data.description,

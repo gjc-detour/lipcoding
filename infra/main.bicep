@@ -64,6 +64,17 @@ module openai './modules/openai.bicep' = {
   }
 }
 
+module storage './modules/storage.bicep' = {
+  name: 'storage'
+  scope: rg
+  params: {
+    cosmosAccountName: 'cosmos${resourceToken}'
+    storageAccountName: 'st${resourceToken}'
+    location: location
+    tags: tags
+  }
+}
+
 module web './modules/container-app.bicep' = {
   name: 'web'
   scope: rg
@@ -78,12 +89,27 @@ module web './modules/container-app.bicep' = {
       { name: 'AZURE_OPENAI_API_KEY', secretRef: 'azure-openai-key' }
       { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
       { name: 'AZURE_OPENAI_WHISPER_DEPLOYMENT', value: whisperDeploymentName }
+      { name: 'STORAGE_BACKEND', value: 'cosmos' }
+      { name: 'COSMOS_ENDPOINT', value: storage.outputs.cosmosEndpoint }
+      { name: 'COSMOS_CONNECTION_STRING', secretRef: 'cosmos-connection-string' }
+      { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'azure-storage-connection-string' }
       { name: 'PORT', value: '3001' }
     ]
     secrets: [
       { name: 'azure-openai-key', value: azureOpenAiApiKey }
+      { name: 'cosmos-connection-string', value: storage.outputs.cosmosConnectionString }
+      { name: 'azure-storage-connection-string', value: storage.outputs.storageConnectionString }
     ]
     targetPort: 3001
+  }
+}
+
+module cosmosRoleAssignment './modules/cosmos-role-assignment.bicep' = {
+  name: 'cosmos-role-assignment'
+  scope: rg
+  params: {
+    cosmosAccountName: storage.outputs.cosmosAccountName
+    principalId: web.outputs.principalId
   }
 }
 

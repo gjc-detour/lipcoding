@@ -13,8 +13,8 @@ export function useInbox(search = "") {
     try {
       setError(null);
       setLoading(true);
-      const nextItems = await fetchInboxItems(search);
-      setItems(nextItems);
+      const response = await fetchInboxItems(search);
+      setItems(response.items);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "Failed to load inbox items.";

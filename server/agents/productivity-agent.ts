@@ -23,6 +23,10 @@ import {
   createInboxItem,
   createScheduledEvent,
   getInboxItems,
+  updateInboxItem,
+  closeScheduledEvent,
+  getUpcomingEvents,
+  getScheduledEvents,
   type InboxItem,
   type ScheduledEvent,
 } from "../services/storage.js";
@@ -41,14 +45,51 @@ You support both Korean (한국어) and English. Respond in the same language th
 - Mixed input is fine — match the dominant language of the message.
 
 When a user gives you text, voice transcript, or file content:
-1. Determine the type: 'note', 'task', 'event', or 'file'
-2. Generate a concise summary (in the same language as the input)
-3. Extract tags (keywords/topics — keep them in the input language)
-4. Look for dates/deadlines (handle Korean date formats like "금요일", "다음 주 월요일", "내일") → call schedule_event if applicable
-5. Always call save_item to persist the content
+1. CHECK the existing context (items and events provided below) first — avoid saving duplicates
+2. Determine the type: 'note', 'task', 'event', or 'file'
+3. Generate a concise summary (in the same language as the input)
+4. Extract tags (keywords/topics — keep them in the input language)
+5. Look for dates/deadlines (handle Korean date formats like "금요일", "다음 주 월요일", "내일") → call schedule_event if applicable
+6. If a similar item already exists → call update_item instead of save_item
+7. If the user says to cancel/close/done/완료/취소 a schedule → call close_event
 
 Be proactive: if you see a task (할 일), create it. If you see a date, schedule it.
-Always confirm what you saved so the user knows it's stored.`;
+If the user references something they've already saved, use search_items first.
+Always confirm what you saved, updated, or closed.`;
+
+async function buildContextSection(userId: string): Promise<string> {
+  try {
+    const [recentItems, upcomingEvents] = await Promise.all([
+      getInboxItems(userId),
+      getUpcomingEvents(userId, 168),
+    ]);
+    const recent = recentItems.slice(0, 10);
+
+    if (recent.length === 0 && upcomingEvents.length === 0) return "";
+
+    const lines: string[] = ["\n\n--- EXISTING CONTEXT (use this to avoid duplicates) ---"];
+
+    if (recent.length > 0) {
+      lines.push("Recent saved items:");
+      for (const item of recent) {
+        const due = item.due_date ? ` (due: ${item.due_date})` : "";
+        lines.push(`  [${item.id.slice(0, 8)}] ${item.type}: "${item.summary}"${due} tags: ${item.tags.join(", ")}`);
+      }
+    }
+
+    if (upcomingEvents.length > 0) {
+      lines.push("Upcoming scheduled events:");
+      for (const ev of upcomingEvents) {
+        lines.push(`  [${ev.id.slice(0, 8)}] "${ev.title}" due: ${ev.due_at}`);
+      }
+    }
+
+    lines.push("--- END CONTEXT ---");
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
 
 export interface AgentInput {
   message?: string;
@@ -220,6 +261,41 @@ const TOOLS: PromptFunction[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "update_item",
+      description: "Update an existing inbox item — use when the user modifies, corrects, or adds to something already saved",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The 8-char prefix or full ID of the item to update (from context)" },
+          summary: { type: "string", description: "New summary, or null to keep existing" },
+          tags: { type: "array", items: { type: "string" }, description: "New tags, or null to keep existing" },
+          due_date: { type: "string", description: "New ISO8601 due date, or null to keep existing" },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "close_event",
+      description: "Cancel or close a scheduled event — use when user says done/cancel/취소/완료 for a specific schedule",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The 8-char prefix or full ID of the event to close (from context)" },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 interface ToolDispatchContext {
@@ -231,23 +307,28 @@ let copilotClient: CopilotClient | null = null;
 
 function buildConversation(
   messages?: AgentInput["messages"],
-  message?: string
-): PromptConversationMessage[] {
-  const sourceMessages =
-    messages && messages.length > 0
-      ? messages
-      : typeof message === "string" && message.trim().length > 0
-        ? [{ role: "user", content: message }]
-        : [];
+  message?: string,
+  userId?: string
+): Promise<PromptConversationMessage[]> {
+  return buildContextSection(userId ?? DEFAULT_USER_ID).then((contextSection) => {
+    const systemPromptWithContext = SYSTEM_PROMPT + contextSection;
 
-  const normalizedMessages = sourceMessages
-    .filter(
-      (message) =>
-        typeof message.role === "string" && typeof message.content === "string"
-    )
-    .map((message) => ({ ...message })) as InteropMessage[];
+    const sourceMessages =
+      messages && messages.length > 0
+        ? messages
+        : typeof message === "string" && message.trim().length > 0
+          ? [{ role: "user", content: message }]
+          : [];
 
-  return [{ role: "system", content: SYSTEM_PROMPT }, ...normalizedMessages];
+    const normalizedMessages = sourceMessages
+      .filter(
+        (message) =>
+          typeof message.role === "string" && typeof message.content === "string"
+      )
+      .map((message) => ({ ...message })) as InteropMessage[];
+
+    return [{ role: "system", content: systemPromptWithContext }, ...normalizedMessages];
+  });
 }
 
 function getEffectiveUserId(userId?: string): string {
@@ -434,7 +515,7 @@ async function translateAndSave(
   context: ToolDispatchContext
 ): Promise<DispatchToolResult> {
   const translatedText = await translateTextWithAzure(args);
-  const savedItem = createInboxItem({
+  const savedItem = await createInboxItem({
     user_id: context.userId,
     type: "note",
     raw: translatedText,
@@ -468,7 +549,7 @@ async function dispatchTool(
         due_date: optionalString(rawArgs.due_date),
       };
 
-      const savedItem = createInboxItem({
+      const savedItem = await createInboxItem({
         ...args,
         user_id: context.userId,
         scheduled: false,
@@ -489,7 +570,7 @@ async function dispatchTool(
         item_id: optionalString(rawArgs.item_id),
       };
 
-      const scheduledEvent = createScheduledEvent({
+      const scheduledEvent = await createScheduledEvent({
         ...args,
         user_id: context.userId,
         notified: false,
@@ -506,7 +587,7 @@ async function dispatchTool(
       const args: SearchItemsArgs = {
         query: ensureString(rawArgs.query, "query"),
       };
-      const items = getInboxItems(context.userId, args.query);
+      const items = await getInboxItems(context.userId, args.query);
 
       return {
         result: {
@@ -517,13 +598,35 @@ async function dispatchTool(
     case "translate_text": {
       const args: TranslateTextArgs = {
         text: ensureString(rawArgs.text, "text"),
-        target_language: ensureString(
-          rawArgs.target_language,
-          "target_language"
-        ),
+        target_language: ensureString(rawArgs.target_language, "target_language"),
       };
-
       return translateAndSave(args, context);
+    }
+    case "update_item": {
+      const id = ensureString(rawArgs.id, "id");
+      // Support short 8-char prefix — find full ID from storage
+      const allItems = await getInboxItems(context.userId);
+      const found = allItems.find((i) => i.id === id || i.id.startsWith(id));
+      if (!found) throw new Error(`No item found with id prefix "${id}"`);
+
+      const patch: Partial<InboxItem> = {};
+      if (typeof rawArgs.summary === "string" && rawArgs.summary.trim()) patch.summary = rawArgs.summary.trim();
+      if (Array.isArray(rawArgs.tags)) patch.tags = rawArgs.tags as string[];
+      if (typeof rawArgs.due_date === "string" && rawArgs.due_date.trim()) patch.due_date = rawArgs.due_date.trim();
+
+      const updated = await updateInboxItem(found.id, patch, context.userId);
+      if (!updated) throw new Error(`Failed to update item ${found.id}`);
+      return { result: { item: updated }, references: [toInboxReference(updated)] };
+    }
+    case "close_event": {
+      const id = ensureString(rawArgs.id, "id");
+      const allEvents = await getScheduledEvents(context.userId);
+      const found = allEvents.find((e) => e.id === id || e.id.startsWith(id));
+      if (!found) throw new Error(`No event found with id prefix "${id}"`);
+
+      const closed = await closeScheduledEvent(found.id, context.userId);
+      if (!closed) throw new Error(`Failed to close event ${found.id}`);
+      return { result: { closed: true, eventId: found.id, title: found.title } };
     }
     default:
       throw new Error(`Unsupported tool: ${toolName}`);
@@ -598,7 +701,7 @@ function createProductivityTools(
       },
       skipPermission: true,
       handler: async (args: SaveItemArgs) => {
-        const savedItem = createInboxItem({
+        const savedItem = await createInboxItem({
           ...args,
           user_id: userId,
           scheduled: false,
@@ -626,7 +729,7 @@ function createProductivityTools(
       },
       skipPermission: true,
       handler: async (args: ScheduleEventArgs) => {
-        const scheduledEvent = createScheduledEvent({
+        const scheduledEvent = await createScheduledEvent({
           ...args,
           user_id: userId,
           notified: false,
@@ -648,7 +751,7 @@ function createProductivityTools(
       },
       skipPermission: true,
       handler: async (args: SearchItemsArgs) => {
-        const items = getInboxItems(userId, args.query);
+        const items = await getInboxItems(userId, args.query);
         return {
           items: items.map((item) => ({
             id: item.id,
@@ -676,7 +779,7 @@ function createProductivityTools(
       skipPermission: true,
       handler: async (args: TranslateTextArgs) => {
         const translatedText = await translateTextWithAzure(args);
-        const savedItem = createInboxItem({
+        const savedItem = await createInboxItem({
           user_id: userId,
           type: "note",
           raw: translatedText,
@@ -727,6 +830,7 @@ export async function processWithCopilotSDK(
   };
   const promptText = buildCopilotPrompt(input);
   const tools = createProductivityTools(userId, savedArtifacts);
+  const contextSection = await buildContextSection(userId);
   const toolCalls = new Map<string, { toolName: string; startedAt: number }>();
   let sessionResponseText: string | undefined;
   let session: Awaited<ReturnType<CopilotClient["createSession"]>> | null = null;
@@ -744,7 +848,7 @@ export async function processWithCopilotSDK(
         wireApi: "completions",
       },
       systemMessage: {
-        content: SYSTEM_PROMPT,
+        content: SYSTEM_PROMPT + contextSection,
       },
     });
 
@@ -824,7 +928,7 @@ export async function processWithAgent(
   const userId = getEffectiveUserId(input.userId);
   const { correlationId } = getContext();
   const references: CopilotReference[] = [];
-  const conversation = buildConversation(input.messages, input.message);
+  const conversation = await buildConversation(input.messages, input.message, userId);
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const result = await runTimedAiCall(DEFAULT_MODEL, () =>
@@ -917,9 +1021,10 @@ export async function processWithAzureFallback(
   const userId = getEffectiveUserId(input.userId);
   const { correlationId } = getContext();
   const references: CopilotReference[] = [];
+  const contextSection = await buildContextSection(userId);
 
   const conversation: ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: SYSTEM_PROMPT + contextSection },
     ...(input.messages && input.messages.length > 0
       ? input.messages
           .filter((m): m is { role: "system" | "user" | "assistant"; content: string } =>
